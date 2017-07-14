@@ -324,7 +324,8 @@ public:
     * the signal manager convert signal to io message,
     * whatever, we will got the signo like the orignal signal(int signo) handler.
     * @remark, direclty exit for SIGTERM.
-    * @remark, do reload for SIGNAL_RELOAD.
+    * @remark, do reload for SIGNAL_RELOAD
+    * @remark, reopen the log file for the SIGUSR1
     * @remark, for SIGINT and SIGUSR2:
     *       no gmc, directly exit.
     *       for gmc, set the variable signal_gmc_stop, the cycle will return and cleanup for gmc.
