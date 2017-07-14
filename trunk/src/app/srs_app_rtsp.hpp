@@ -110,7 +110,7 @@ public:
 /**
  * the rtsp connection serve the fd.
  */
-class SrsRtspConn : public ISrsOneCycleThreadHandler
+class SrsRtspConn : public ISrsCoroutineHandler
 {
 private:
     std::string output_template;
@@ -129,11 +129,11 @@ private:
     int audio_channel;
     SrsRtpConn* audio_rtp;
 private:
-    st_netfd_t stfd;
+    srs_netfd_t stfd;
     SrsStSocket* skt;
     SrsRtspStack* rtsp;
     SrsRtspCaster* caster;
-    SrsOneCycleThread* trd;
+    SrsCoroutine* trd;
 private:
     SrsRequest* req;
     SrsSimpleRtmpClient* sdk;
@@ -149,7 +149,7 @@ private:
     std::string aac_specific_config;
     SrsRtspAudioCache* acache;
 public:
-    SrsRtspConn(SrsRtspCaster* c, st_netfd_t fd, std::string o);
+    SrsRtspConn(SrsRtspCaster* c, srs_netfd_t fd, std::string o);
     virtual ~SrsRtspConn();
 public:
     virtual int serve();
@@ -161,7 +161,6 @@ public:
 // interface ISrsOneCycleThreadHandler
 public:
     virtual int cycle();
-    virtual void on_thread_stop();
 private:
     virtual int on_rtp_video(SrsRtpPacket* pkt, int64_t dts, int64_t pts);
     virtual int on_rtp_audio(SrsRtpPacket* pkt, int64_t dts);
@@ -207,7 +206,7 @@ public:
     virtual void free_port(int lpmin, int lpmax);
 // interface ISrsTcpHandler
 public:
-    virtual int on_tcp_client(st_netfd_t stfd);
+    virtual int on_tcp_client(srs_netfd_t stfd);
     // internal methods.
 public:
     virtual void remove(SrsRtspConn* conn);

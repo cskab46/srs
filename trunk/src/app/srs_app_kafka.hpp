@@ -152,22 +152,22 @@ public:
 // @global kafka event producer.
 extern ISrsKafkaCluster* _srs_kafka;
 // kafka initialize and disposer for global object.
-extern int srs_initialize_kafka();
+extern srs_error_t srs_initialize_kafka();
 extern void srs_dispose_kafka();
 
 /**
  * the kafka producer used to save log to kafka cluster.
  */
-class SrsKafkaProducer : virtual public ISrsReusableThreadHandler, virtual public ISrsKafkaCluster
+class SrsKafkaProducer : virtual public ISrsCoroutineHandler, virtual public ISrsKafkaCluster
 {
 private:
     // TODO: FIXME: support reload.
     bool enabled;
-    st_mutex_t lock;
-    SrsReusableThread* pthread;
+    srs_mutex_t lock;
+    SrsCoroutine* trd;
 private:
     bool metadata_ok;
-    st_cond_t metadata_expired;
+    srs_cond_t metadata_expired;
 public:
     std::vector<SrsKafkaPartition*> partitions;
     SrsKafkaCache* cache;
@@ -178,7 +178,7 @@ public:
     SrsKafkaProducer();
     virtual ~SrsKafkaProducer();
 public:
-    virtual int initialize();
+    virtual srs_error_t initialize();
     virtual int start();
     virtual void stop();
 // internal: for worker to call task to send object.

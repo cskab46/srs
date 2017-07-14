@@ -60,7 +60,7 @@ SrsBufferCache::SrsBufferCache(SrsSource* s, SrsRequest* r)
     req = r->copy();
     source = s;
     queue = new SrsMessageQueue(true);
-    pthread = new SrsEndlessThread("http-stream", this);
+    trd = new SrsSTCoroutine("http-stream", this);
     
     // TODO: FIXME: support reload.
     fast_cache = _srs_config->get_vhost_http_remux_fast_cache(req->vhost);
@@ -68,7 +68,7 @@ SrsBufferCache::SrsBufferCache(SrsSource* s, SrsRequest* r)
 
 SrsBufferCache::~SrsBufferCache()
 {
-    srs_freep(pthread);
+    srs_freep(trd);
     
     srs_freep(queue);
     srs_freep(req);
@@ -87,7 +87,7 @@ int SrsBufferCache::update(SrsSource* s, SrsRequest* r)
 
 int SrsBufferCache::start()
 {
-    return pthread->start();
+    return trd->start();
 }
 
 int SrsBufferCache::dump_cache(SrsConsumer* consumer, SrsRtmpJitterAlgorithm jitter)
@@ -116,7 +116,7 @@ int SrsBufferCache::cycle()
     
     // TODO: FIXME: support reload.
     if (fast_cache <= 0) {
-        st_sleep(SRS_STREAM_CACHE_CYCLE_SECONDS);
+        srs_usleep(SRS_STREAM_CACHE_CYCLE_SECONDS * 1000 * 1000);
         return ret;
     }
     
@@ -138,7 +138,7 @@ int SrsBufferCache::cycle()
     // TODO: FIXME: support reload.
     queue->set_queue_size(fast_cache);
     
-    while (true) {
+    while (!trd->pull()) {
         pprint->elapse();
         
         // get messages from consumer.
@@ -152,7 +152,7 @@ int SrsBufferCache::cycle()
         if (count <= 0) {
             srs_info("http: sleep %dms for no msg", SRS_CONSTS_RTMP_PULSE_TMMS);
             // directly use sleep, donot use consumer wait.
-            st_usleep(SRS_CONSTS_RTMP_PULSE_TMMS * 1000);
+            srs_usleep(SRS_CONSTS_RTMP_PULSE_TMMS * 1000);
             
             // ignore when nothing got.
             continue;
@@ -572,7 +572,7 @@ int SrsLiveStream::serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r)
         if (count <= 0) {
             srs_info("http: sleep %dms for no msg", SRS_CONSTS_RTMP_PULSE_TMMS);
             // directly use sleep, donot use consumer wait.
-            st_usleep(SRS_CONSTS_RTMP_PULSE_TMMS * 1000);
+            srs_usleep(SRS_CONSTS_RTMP_PULSE_TMMS * 1000);
             
             // ignore when nothing got.
             continue;
@@ -704,22 +704,24 @@ SrsHttpStreamServer::~SrsHttpStreamServer()
     }
 }
 
-int SrsHttpStreamServer::initialize()
+srs_error_t SrsHttpStreamServer::initialize()
 {
     int ret = ERROR_SUCCESS;
+    srs_error_t err = srs_success;
     
     // remux rtmp to flv live streaming
     if ((ret = initialize_flv_streaming()) != ERROR_SUCCESS) {
-        return ret;
+        return srs_error_new(ret, "http flv stream");
     }
     
-    return ret;
+    return err;
 }
 
 // TODO: FIXME: rename for HTTP FLV mount.
 int SrsHttpStreamServer::http_mount(SrsSource* s, SrsRequest* r)
 {
     int ret = ERROR_SUCCESS;
+    srs_error_t err = srs_success;
     
     // the id to identify stream.
     std::string sid = r->get_stream_url();
@@ -766,7 +768,11 @@ int SrsHttpStreamServer::http_mount(SrsSource* s, SrsRequest* r)
         // we must register the handler, then start the thread,
         // for the thread will cause thread switch context.
         // @see https://github.com/ossrs/srs/issues/404
-        if ((ret = mux.handle(mount, entry->stream)) != ERROR_SUCCESS) {
+        if ((err = mux.handle(mount, entry->stream)) != srs_success) {
+            // TODO: FIXME: Use error.
+            ret = srs_error_code(err);
+            srs_freep(err);
+            
             srs_error("http: mount flv stream for vhost=%s failed. ret=%d", sid.c_str(), ret);
             return ret;
         }

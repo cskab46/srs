@@ -183,7 +183,7 @@ int SrsRtspJitter::correct(int64_t& ts)
     return ret;
 }
 
-SrsRtspConn::SrsRtspConn(SrsRtspCaster* c, st_netfd_t fd, std::string o)
+SrsRtspConn::SrsRtspConn(SrsRtspCaster* c, srs_netfd_t fd, std::string o)
 {
     output_template = o;
     
@@ -195,7 +195,7 @@ SrsRtspConn::SrsRtspConn(SrsRtspCaster* c, st_netfd_t fd, std::string o)
     stfd = fd;
     skt = new SrsStSocket();
     rtsp = new SrsRtspStack(skt);
-    trd = new SrsOneCycleThread("rtsp", this);
+    trd = new SrsSTCoroutine("rtsp", this);
     
     req = NULL;
     sdk = NULL;
@@ -245,11 +245,11 @@ int SrsRtspConn::do_cycle()
     int ret = ERROR_SUCCESS;
     
     // retrieve ip of client.
-    std::string ip = srs_get_peer_ip(st_netfd_fileno(stfd));
+    std::string ip = srs_get_peer_ip(srs_netfd_fileno(stfd));
     srs_trace("rtsp: serve %s", ip.c_str());
     
     // consume all rtsp messages.
-    for (;;) {
+    while (!trd->pull()) {
         SrsRtspRequest* req = NULL;
         if ((ret = rtsp->recv_message(&req)) != ERROR_SUCCESS) {
             if (!srs_is_client_gracefully_close(ret)) {
@@ -417,11 +417,6 @@ int SrsRtspConn::cycle()
         srs_warn("client disconnect peer. ret=%d", ret);
     }
     
-    return ERROR_SUCCESS;
-}
-
-void SrsRtspConn::on_thread_stop()
-{
     if (video_rtp) {
         caster->free_port(video_rtp->port(), video_rtp->port() + 1);
     }
@@ -431,6 +426,8 @@ void SrsRtspConn::on_thread_stop()
     }
     
     caster->remove(this);
+    
+    return ERROR_SUCCESS;
 }
 
 int SrsRtspConn::on_rtp_video(SrsRtpPacket* pkt, int64_t dts, int64_t pts)
@@ -749,7 +746,7 @@ void SrsRtspCaster::free_port(int lpmin, int lpmax)
     srs_trace("rtsp: free rtp port=%d-%d", lpmin, lpmax);
 }
 
-int SrsRtspCaster::on_tcp_client(st_netfd_t stfd)
+int SrsRtspCaster::on_tcp_client(srs_netfd_t stfd)
 {
     int ret = ERROR_SUCCESS;
     

@@ -38,7 +38,7 @@ class SrsTsTransmuxer;
  * for example, the audio stream cache to make android(weixin) happy.
  * we start a thread to shrink the queue.
  */
-class SrsBufferCache : public ISrsEndlessThreadHandler
+class SrsBufferCache : public ISrsCoroutineHandler
 {
 private:
     double fast_cache;
@@ -46,7 +46,7 @@ private:
     SrsMessageQueue* queue;
     SrsSource* source;
     SrsRequest* req;
-    SrsEndlessThread* pthread;
+    SrsCoroutine* trd;
 public:
     SrsBufferCache(SrsSource* s, SrsRequest* r);
     virtual ~SrsBufferCache();
@@ -283,7 +283,7 @@ public:
     SrsHttpStreamServer(SrsServer* svr);
     virtual ~SrsHttpStreamServer();
 public:
-    virtual int initialize();
+    virtual srs_error_t initialize();
     // http flv/ts/mp3/aac stream
 public:
     virtual int http_mount(SrsSource* s, SrsRequest* r);

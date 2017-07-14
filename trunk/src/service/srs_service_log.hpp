@@ -38,7 +38,7 @@
 class SrsThreadContext : public ISrsThreadContext
 {
 private:
-    std::map<st_thread_t, int> cache;
+    std::map<srs_thread_t, int> cache;
 public:
     SrsThreadContext();
     virtual ~SrsThreadContext();
@@ -65,7 +65,7 @@ public:
     virtual ~SrsConsoleLog();
 // interface ISrsLog
 public:
-    virtual int initialize();
+    virtual srs_error_t initialize();
     virtual void reopen();
     virtual void verbose(const char* tag, int context_id, const char* fmt, ...);
     virtual void info(const char* tag, int context_id, const char* fmt, ...);

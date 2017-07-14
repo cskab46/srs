@@ -208,9 +208,10 @@ SrsHttpStaticServer::~SrsHttpStaticServer()
     _srs_config->unsubscribe(this);
 }
 
-int SrsHttpStaticServer::initialize()
+srs_error_t SrsHttpStaticServer::initialize()
 {
     int ret = ERROR_SUCCESS;
+    srs_error_t err = srs_success;
     
     bool default_root_exists = false;
     
@@ -226,7 +227,7 @@ int SrsHttpStaticServer::initialize()
         string pmount;
         string vhost = conf->arg0();
         if ((ret = mount_vhost(vhost, pmount)) != ERROR_SUCCESS) {
-            return ret;
+            return srs_error_new(ret, "mount vhost");
         }
         
         if (pmount == "/") {
@@ -239,19 +240,19 @@ int SrsHttpStaticServer::initialize()
     if (!default_root_exists) {
         // add root
         std::string dir = _srs_config->get_http_stream_dir();
-        if ((ret = mux.handle("/", new SrsVodStream(dir))) != ERROR_SUCCESS) {
-            srs_error("http: mount root dir=%s failed. ret=%d", dir.c_str(), ret);
-            return ret;
+        if ((err = mux.handle("/", new SrsVodStream(dir))) != srs_success) {
+            return srs_error_wrap(err, "mount root dir=%s", dir.c_str());
         }
         srs_trace("http: root mount to %s", dir.c_str());
     }
     
-    return ret;
+    return err;
 }
 
 int SrsHttpStaticServer::mount_vhost(string vhost, string& pmount)
 {
     int ret = ERROR_SUCCESS;
+    srs_error_t err = srs_success;
     
     // when vhost disabled, ignore.
     if (!_srs_config->get_vhost_enabled(vhost)) {
@@ -279,7 +280,11 @@ int SrsHttpStaticServer::mount_vhost(string vhost, string& pmount)
     }
     
     // mount the http of vhost.
-    if ((ret = mux.handle(mount, new SrsVodStream(dir))) != ERROR_SUCCESS) {
+    if ((err = mux.handle(mount, new SrsVodStream(dir))) != srs_success) {
+        // TODO: FIXME: Use error.
+        ret = srs_error_code(err);
+        srs_freep(err);
+        
         srs_error("http: mount dir=%s for vhost=%s failed. ret=%d", dir.c_str(), vhost.c_str(), ret);
         return ret;
     }

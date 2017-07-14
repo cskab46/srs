@@ -12,6 +12,9 @@ Download from github.io: [Centos6-x86_64][centos0], [more...][more0]<br/>
 Download from ossrs.net: [Centos6-x86_64][centos1], [more...][more1]<br/>
 For the wiki for SRS/3.0, please read [Chinese][srs_CN] or [English][srs_EN].
 
+Although SRS is licenced under [MIT][LICENSE], but there are some depended libraries
+which are distributed using their own licenses, please read [License Mixing][LicenseMixing].
+
 ## Content
 
 * [About](#about)
@@ -39,7 +42,7 @@ For the wiki for SRS/3.0, please read [Chinese][srs_CN] or [English][srs_EN].
 ## About
 
 SRS(Simple RTMP Server) is created in 2013.10.
-SRS supports many protocols includes RTMP, HLS, HTTP-FLV and HDS.
+SRS supports many protocols includes RTMP, HLS, HTTP-FLV, HDS and MPEG-DASH.
 SRS can run on both LINUX and OSX, and X86, X64, ARM and MIPS cpu.
 Vhost is used as service unit for live cluster, which delivery stream by origin and edge.
 The stream on origin can be transcoded, DVR to VOD file, ingest from external sources, or forwarded to other servers.
@@ -54,13 +57,13 @@ Why SRS?
 1. <strong>Variety inputs:</strong> RTMP, pull by ingest file or stream(HTTP/RTMP/RTSP), push by stream caster 
 RTSP/MPEGTS-over-UDP.
 1. <strong>Popular internet delivery:</strong> RTMP/HDS for flash, HLS for mobile(IOS/IPad/MAC/Android), HTTP 
-flv/ts/mp3/aac streaming for user prefered.
+flv/ts/mp3/aac streaming for user prefered, and MPEG-DASH.
 1. <strong>Enhanced DVR:</strong> Segment/session/append plan, customer path and HTTP callback, to FLV/MP4 file.
 1. <strong>Multiple features:</strong> Transcode, forward, ingest, http hooks, dvr, hls, rtsp, http streaming, 
 http raw api, refer, log, bandwith test and srs-librtmp.
 1. <strong>Best maintainess:</strong> Simple arch over state-threads(coroutine), single thread, single process 
 and for linux/osx platform, common server x86-64/i386/arm/mips cpus, rich comments, strictly 
-follows RTMP/HLS/RTSP spec.
+follows RTMP/HLS/DASH/RTSP spec.
 1. <strong>Easy to use:</strong> Both English and Chinese wiki, typically config files in trunk/conf, traceable 
 and session based log, linux service script and install script.
 1. <strong>MIT license:</strong> Open source with product management and evolution.
@@ -167,25 +170,30 @@ Please select your language:
 - [x] Support HTTP RAW API, please read [#459][bug #459], [#470][bug #470], [#319][bug #319].
 - [x] Support http api/stream CORS for js.
 - [x] Support valgrind and latest ARM by patch ST.
-- [x] [experiment] Support big-data with Kafka, please read [#467][bug #467].
-- [x] [experiment] Support Adobe HDS(f4m), please read wiki([CN][v2_CN_DeliveryHDS], [EN][v2_EN_DeliveryHDS]).
-- [x] [experiment] Support push MPEG-TS over UDP to SRS, please read [bug #250][bug #250].
-- [x] [experiment] Support push RTSP to SRS, please read [bug #133][bug #133].
-- [x] [experiment] Support push POST FLV over HTTP, please read [wiki]([CN][v2_CN_Streamer2], [EN][v2_EN_Streamer2]).
-- [x] [experiment] Support multiple processes by [dolphin][srs-dolphin] or [oryx][oryx].
-- [x] [experiment] Support [mgmt console][console], please read [srs-ngb][srs-ngb].
 - [x] Enhanced HLS audio-only use ts, see [#547][bug #547].
+- [x] [Experimental] Support big-data with Kafka, please read [#467][bug #467].
+- [x] [Experimental] Support Adobe HDS(f4m), please read wiki([CN][v2_CN_DeliveryHDS], [EN][v2_EN_DeliveryHDS]).
+- [x] [Experimental] Support push MPEG-TS over UDP to SRS, please read [bug #250][bug #250].
+- [x] [Experimental] Support push RTSP to SRS, please read [bug #133][bug #133].
+- [x] [Experimental] Support push POST FLV over HTTP, please read [wiki]([CN][v2_CN_Streamer2], [EN][v2_EN_Streamer2]).
+- [x] [Experimental] Support multiple processes by [dolphin][srs-dolphin] or [oryx][oryx].
+- [x] [Experimental] Support [mgmt console][console], please read [srs-ngb][srs-ngb].
+- [x] [Experimental] Support MPEG-DASH, the future streaming protocol, read [#299][bug #299].
+- [ ] Enhanced error code with description and stack, read [#913][bug #913].
 - [ ] Enhanced forward with vhost and url variables.
 - [ ] Support source or idle stream cleanup.
 - [ ] Support origin cluster, please read [#464][bug #464], [RTMP 302][bug #92].
 - [ ] Support H.265, push RTMP with H.265, delivery in HLS, read [#465][bug #465].
-- [ ] Support MPEG-DASH, the future streaming protocol, read [#299][bug #299].
 - [ ] Support HLS+, please read [#466][bug #466] and [#468][bug #468].
 
 ### Change Logs
+<a name="history"></a>
 
 ### V3 changes
 
+* v3.0, 2017-06-04, Fix [#299][bug #299], support experimental MPEG-DASH. 3.0.25
+* v3.0, 2017-05-30, Fix [#821][bug #821], support MP4 file parser. 3.0.24
+* v3.0, 2017-05-30, Fix [#904][bug #904], replace NXJSON(LGPL) with json-parser(BSD). 3.0.23
 * v3.0, 2017-04-16, Fix [#547][bug #547], support HLS audio in TS. 3.0.22
 * v3.0, 2017-03-26, Fix [#820][bug #820], extract service for modules. 3.0.21
 * v3.0, 2017-03-02, Fix [#786][bug #786], simply don't reuse object. 3.0.20
@@ -215,6 +223,8 @@ Please select your language:
 
 ### V2 changes
 
+* <strong>v2.0, 2017-06-10, [2.0 release2(2.0.243)][r2.0r2] released. 86670 lines.</strong>
+* v2.0, 2017-05-29, Merge [#899][bug #899] to fix [#893][bug #893], ts PES ext length. 2.0.243
 * v2.0, 2017-05-01, Fix [#865][bug #865], shouldn't remove ts/m3u8 when hls_dispose disabled. 2.0.242
 * v2.0, 2017-04-30, Fix [#636][bug #636], FD leak for requesting empty HTTP stream. 2.0.241
 * v2.0, 2017-04-23, Fix [#851][bug #851], HTTP API support number of video frames for FPS. 2.0.240
@@ -659,9 +669,10 @@ Compare SRS with other media server, more compare please read Product([CN][v1_CN
 |   ----------- |   ------- |   -----   | --------- | --------  |   ------  |
 |   RTMP        |   Stable  |   Stable  |   Stable  |   Stable  |   Stable  |
 |   HLS         |   Stable  |   Stable  |   X       |   Stable  |   Stable  |
-|   HDS         | Experiment|   X       |   X       |   Stable  |   Stable  |
 |   HTTP FLV    |   Stable  |   X       |   X       |   X       |   X       |
 |   HLS(aonly)  |   Stable  |   X       |   X       |   Stable  |   Stable  |
+|   HDS         | Experiment|   X       |   X       |   Stable  |   Stable  |
+|   MPEG-DASH   | Experiment|   X       |   X       |   X       |   X       |
 |   HTTP Server |   Stable  |   Stable  |   X       |   X       |   Stable  |
 
 #### Cluster
@@ -854,8 +865,8 @@ SRS always use the most simple architecture to support complex transaction.
 |                    Application                       |
 |            Origin/Edge/HTTP-FLV/StreamCaster         |
 +---------------+---------------+-----------+----------+
-|   RAW API/    |     EXEC/     |    DVR/   | FLV/TS/  |
-|   API/hook    |   Transcoder  |  HLS/HDS  | AMF0/JSON|
+|   RAW API/    |     EXEC/     |  DVR/HLS  | FLV/TS/  |
+|   API/hook    |   Transcoder  |  HDS/DASH | AMF0/JSON|
 +---------------+---------------+-----------+ RTMP/RTSP|
 |  http-parser  |  FFMPEG/x264  |  NGINX/ts | protocol |
 +---------------+---------------+-----------+----------+
@@ -896,6 +907,7 @@ Remark:
 +----------------------+-------------------------+----------------+
 |     Input            | SRS(Simple RTMP Server) |     Output     |
 +----------------------+-------------------------+----------------+
+|                      |   +-> DASH -------------+-> DASH player  |
 |    Encoder(1)        |   +-> RTMP/HDS  --------+-> Flash player |
 |  (FMLE,FFMPEG, -rtmp-+->-+-> HLS/HTTP ---------+-> M3U8 player  |
 |  Flash,XSPLIT,       |   +-> FLV/MP3/Aac/Ts ---+-> HTTP player  |
@@ -1403,6 +1415,8 @@ Winlin
 [bug #851]: https://github.com/ossrs/srs/issues/851
 [bug #636]: https://github.com/ossrs/srs/issues/636
 [bug #865]: https://github.com/ossrs/srs/issues/865
+[bug #893]: https://github.com/ossrs/srs/issues/893
+[bug #899]: https://github.com/ossrs/srs/issues/899
 [bug #xxxxxxxxxx]: https://github.com/ossrs/srs/issues/xxxxxxxxxx
 
 [bug #735]: https://github.com/ossrs/srs/issues/735
@@ -1411,10 +1425,14 @@ Winlin
 [bug #786]: https://github.com/ossrs/srs/issues/786
 [bug #820]: https://github.com/ossrs/srs/issues/820
 [bug #547]: https://github.com/ossrs/srs/issues/547
+[bug #904]: https://github.com/ossrs/srs/issues/904
+[bug #821]: https://github.com/ossrs/srs/issues/821
+[bug #913]: https://github.com/ossrs/srs/issues/913
 [bug #xxxxxxxxxxxxx]: https://github.com/ossrs/srs/issues/xxxxxxxxxxxxx
 
 [exo #828]: https://github.com/google/ExoPlayer/pull/828
 
+[r2.0r2]: https://github.com/ossrs/srs/releases/tag/v2.0-r2
 [r2.0r1]: https://github.com/ossrs/srs/releases/tag/v2.0-r1
 [r2.0r0]: https://github.com/ossrs/srs/releases/tag/v2.0-r0
 [r2.0b4]: https://github.com/ossrs/srs/releases/tag/v2.0-b4
@@ -1454,12 +1472,15 @@ Winlin
 [more0]: http://winlinvip.github.io/srs.release/releases/
 [more1]: http://www.ossrs.net/srs.release/releases/
 
+[LICENSE]: https://github.com/ossrs/srs/blob/develop/LICENSE
+[LicenseMixing]: https://github.com/ossrs/srs/wiki/LicenseMixing
+
 [srs_CN]: https://github.com/ossrs/srs/wiki/v3_CN_Home
 [srs_EN]: https://github.com/ossrs/srs/wiki/v3_EN_Home
 [branch1]: https://github.com/ossrs/srs/tree/1.0release
 [branch2]: https://github.com/ossrs/srs/tree/2.0release
 [release2]: https://github.com/ossrs/srs/wiki/v1_CN_Product#release20
 [release3]: https://github.com/ossrs/srs/wiki/v1_CN_Product#release30
-[centos0]: http://winlinvip.github.io/srs.release/releases/files/SRS-CentOS6-x86_64-2.0.239.zip
-[centos1]: http://www.ossrs.net/srs.release/releases/files/SRS-CentOS6-x86_64-2.0.239.zip
+[centos0]: http://winlinvip.github.io/srs.release/releases/files/SRS-CentOS6-x86_64-2.0.243.zip
+[centos1]: http://www.ossrs.net/srs.release/releases/files/SRS-CentOS6-x86_64-2.0.243.zip
 

@@ -34,6 +34,7 @@
 #include <srs_app_http_conn.hpp>
 #include <srs_core_autofree.hpp>
 
+#include <sys/socket.h>
 using namespace std;
 
 // the max small bytes to group
@@ -60,15 +61,11 @@ SrsRecvThread::SrsRecvThread(ISrsMessagePumper* p, SrsRtmpServer* r, int tm)
     rtmp = r;
     pumper = p;
     timeout = tm;
-    trd = new SrsReusableThread2("recv", this);
+    trd = new SrsDummyCoroutine();
 }
 
 SrsRecvThread::~SrsRecvThread()
 {
-    // stop recv thread.
-    stop();
-    
-    // destroy the thread.
     srs_freep(trd);
 }
 
@@ -79,6 +76,8 @@ int SrsRecvThread::cid()
 
 int SrsRecvThread::start()
 {
+    srs_freep(trd);
+    trd = new SrsSTCoroutine("recv", this);
     return trd->start();
 }
 
@@ -96,10 +95,33 @@ int SrsRecvThread::cycle()
 {
     int ret = ERROR_SUCCESS;
     
-    while (!trd->interrupted()) {
+    // the multiple messages writev improve performance large,
+    // but the timeout recv will cause 33% sys call performance,
+    // to use isolate thread to recv, can improve about 33% performance.
+    // @see https://github.com/ossrs/srs/issues/194
+    // @see: https://github.com/ossrs/srs/issues/217
+    rtmp->set_recv_timeout(SRS_CONSTS_NO_TMMS);
+    
+    pumper->on_start();
+    
+    ret = do_cycle();
+    
+    // reset the timeout to pulse mode.
+    rtmp->set_recv_timeout(timeout * 1000);
+    
+    pumper->on_stop();
+    
+    return ret;
+}
+
+int SrsRecvThread::do_cycle()
+{
+    int ret = ERROR_SUCCESS;
+    
+    while (!trd->pull()) {
         // When the pumper is interrupted, wait then retry.
         if (pumper->interrupted()) {
-            st_usleep(timeout * 1000);
+            srs_usleep(timeout * 1000);
             continue;
         }
         
@@ -127,26 +149,6 @@ int SrsRecvThread::cycle()
     }
     
     return ret;
-}
-
-void SrsRecvThread::on_thread_start()
-{
-    // the multiple messages writev improve performance large,
-    // but the timeout recv will cause 33% sys call performance,
-    // to use isolate thread to recv, can improve about 33% performance.
-    // @see https://github.com/ossrs/srs/issues/194
-    // @see: https://github.com/ossrs/srs/issues/217
-    rtmp->set_recv_timeout(SRS_CONSTS_NO_TMMS);
-    
-    pumper->on_start();
-}
-
-void SrsRecvThread::on_thread_stop()
-{
-    // reset the timeout to pulse mode.
-    rtmp->set_recv_timeout(timeout * 1000);
-    
-    pumper->on_stop();
 }
 
 SrsQueueRecvThread::SrsQueueRecvThread(SrsConsumer* consumer, SrsRtmpServer* rtmp_sdk, int timeout_ms)
@@ -264,7 +266,7 @@ SrsPublishRecvThread::SrsPublishRecvThread(SrsRtmpServer* rtmp_sdk, SrsRequest* 
     recv_error_code = ERROR_SUCCESS;
     _nb_msgs = 0;
     video_frames = 0;
-    error = st_cond_new();
+    error = srs_cond_new();
     ncid = cid = 0;
     
     req = _req;
@@ -285,7 +287,7 @@ SrsPublishRecvThread::~SrsPublishRecvThread()
     _srs_config->unsubscribe(this);
     
     trd.stop();
-    st_cond_destroy(error);
+    srs_cond_destroy(error);
 }
 
 int SrsPublishRecvThread::wait(uint64_t timeout_ms)
@@ -295,7 +297,7 @@ int SrsPublishRecvThread::wait(uint64_t timeout_ms)
     }
     
     // ignore any return of cond wait.
-    st_cond_timedwait(error, timeout_ms * 1000);
+    srs_cond_timedwait(error, timeout_ms * 1000);
     
     return ERROR_SUCCESS;
 }
@@ -379,7 +381,7 @@ void SrsPublishRecvThread::interrupt(int ret)
     
     // when recv thread error, signal the conn thread to process it.
     // @see https://github.com/ossrs/srs/issues/244
-    st_cond_signal(error);
+    srs_cond_signal(error);
 }
 
 void SrsPublishRecvThread::on_start()
@@ -406,7 +408,7 @@ void SrsPublishRecvThread::on_stop()
     
     // when thread stop, signal the conn thread which wait.
     // @see https://github.com/ossrs/srs/issues/244
-    st_cond_signal(error);
+    srs_cond_signal(error);
     
 #ifdef SRS_PERF_MERGED_READ
     if (mr) {
@@ -435,7 +437,7 @@ void SrsPublishRecvThread::on_read(ssize_t nread)
      * @see https://github.com/ossrs/srs/issues/241
      */
     if (nread < SRS_MR_SMALL_BYTES) {
-        st_usleep(mr_sleep * 1000);
+        srs_usleep(mr_sleep * 1000);
     }
 }
 #endif
@@ -533,7 +535,7 @@ SrsHttpRecvThread::SrsHttpRecvThread(SrsResponseOnlyHttpConn* c)
 {
     conn = c;
     error = ERROR_SUCCESS;
-    trd = new SrsOneCycleThread("http-receive", this);
+    trd = new SrsSTCoroutine("http-receive", this, _srs_context->get_id());
 }
 
 SrsHttpRecvThread::~SrsHttpRecvThread()
@@ -555,7 +557,7 @@ int SrsHttpRecvThread::cycle()
 {
     int ret = ERROR_SUCCESS;
     
-    while (true) {
+    while (!trd->pull()) {
         ISrsHttpMessage* req = NULL;
         SrsAutoFree(ISrsHttpMessage, req);
         

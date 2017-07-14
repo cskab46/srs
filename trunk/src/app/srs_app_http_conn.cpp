@@ -59,7 +59,7 @@ using namespace std;
 #include <srs_app_utility.hpp>
 #include <srs_app_st.hpp>
 
-SrsHttpConn::SrsHttpConn(IConnectionManager* cm, st_netfd_t fd, ISrsHttpServeMux* m, string cip)
+SrsHttpConn::SrsHttpConn(IConnectionManager* cm, srs_netfd_t fd, ISrsHttpServeMux* m, string cip)
 : SrsConnection(cm, fd, cip)
 {
     parser = new SrsHttpParser();
@@ -121,7 +121,7 @@ int SrsHttpConn::do_cycle()
     }
     
     // process http messages.
-    while (!disposed) {
+    while (!trd->pull()) {
         ISrsHttpMessage* req = NULL;
         
         // get a http message
@@ -204,7 +204,7 @@ int SrsHttpConn::on_reload_http_stream_crossdomain()
     return ret;
 }
 
-SrsResponseOnlyHttpConn::SrsResponseOnlyHttpConn(IConnectionManager* cm, st_netfd_t fd, ISrsHttpServeMux* m, string cip)
+SrsResponseOnlyHttpConn::SrsResponseOnlyHttpConn(IConnectionManager* cm, srs_netfd_t fd, ISrsHttpServeMux* m, string cip)
 : SrsHttpConn(cm, fd, m, cip)
 {
 }
@@ -265,24 +265,24 @@ SrsHttpServer::~SrsHttpServer()
     srs_freep(http_static);
 }
 
-int SrsHttpServer::initialize()
+srs_error_t SrsHttpServer::initialize()
 {
-    int ret = ERROR_SUCCESS;
+    srs_error_t err = srs_success;
     
     // for SRS go-sharp to detect the status of HTTP server of SRS HTTP FLV Cluster.
-    if ((ret = http_static->mux.handle("/api/v1/versions", new SrsGoApiVersion())) != ERROR_SUCCESS) {
-        return ret;
+    if ((err = http_static->mux.handle("/api/v1/versions", new SrsGoApiVersion())) != srs_success) {
+        return srs_error_wrap(err, "handle versin");
     }
     
-    if ((ret = http_stream->initialize()) != ERROR_SUCCESS) {
-        return ret;
+    if ((err = http_stream->initialize()) != srs_success) {
+        return srs_error_wrap(err, "http stream");
     }
     
-    if ((ret = http_static->initialize()) != ERROR_SUCCESS) {
-        return ret;
+    if ((err = http_static->initialize()) != srs_success) {
+        return srs_error_wrap(err, "http static");
     }
     
-    return ret;
+    return err;
 }
 
 int SrsHttpServer::serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r)

@@ -41,9 +41,9 @@ using namespace std;
 
 #define SRS_MP4_BUF_SIZE 4096
 
-stringstream& srs_padding(stringstream& ss, int level, int tab = 4)
+stringstream& srs_padding(stringstream& ss, SrsMp4DumpContext dc, int tab = 4)
 {
-    for (int i = 0; i < level; i++) {
+    for (int i = 0; i < dc.level; i++) {
         for (int j = 0; j < tab; j++) {
             ss << " ";
         }
@@ -57,89 +57,111 @@ stringstream& srs_print_mp4_type(stringstream& ss, uint32_t v)
     return ss;
 }
 
+#define SrsSummaryCount 8
+
 template<typename T>
-stringstream& __srs_print_mp4_vector(std::vector<T>& arr, stringstream& ss, int level, bool is_box)
+stringstream& srs_dumps_array(std::vector<T>&arr, stringstream& ss, SrsMp4DumpContext dc,
+    void (*pfn)(T&, stringstream&, SrsMp4DumpContext),
+    void (*delimiter)(stringstream&,SrsMp4DumpContext))
 {
-    for (size_t i = 0; i < arr.size(); i++) {
-        T elem = arr[i];
+    int limit = arr.size();
+    if (dc.summary) {
+        limit = srs_min(SrsSummaryCount, limit);
+    }
+    
+    for (size_t i = 0; i < limit; i++) {
+        T& elem = arr[i];
         
-        if (is_box) {
-            elem.dumps(ss, level);
-        } else {
-            elem.dumps_detail(ss, level);
-        }
+        pfn(elem, ss, dc);
         
-        if (i < arr.size() - 1) {
-            ss << endl;
-            srs_padding(ss, level);
+        if (i < limit - 1) {
+            delimiter(ss, dc);
         }
     }
     return ss;
 }
 
 template<typename T>
-stringstream& srs_print_mp4_vector(std::vector<T>& arr, stringstream& ss, int level)
+stringstream& srs_dumps_array(T* arr, int size, stringstream& ss, SrsMp4DumpContext dc,
+    void (*pfn)(T&, stringstream&, SrsMp4DumpContext),
+    void (*delimiter)(stringstream&, SrsMp4DumpContext))
 {
-    return __srs_print_mp4_vector(arr, ss, level, false);
-}
-
-template<typename T>
-stringstream& __srs_print_mp4_vector_ptr(std::vector<T>& arr, stringstream& ss, int level, bool is_box)
-{
-    for (size_t i = 0; i < arr.size(); i++) {
-        T elem = arr[i];
+    int limit = size;
+    if (dc.summary) {
+        limit = srs_min(SrsSummaryCount, limit);
+    }
+    
+    for (size_t i = 0; i < limit; i++) {
+        T& elem = arr[i];
         
-        if (is_box) {
-            elem->dumps(ss, level);
-        } else {
-            elem->dumps_detail(ss, level);
-        }
+        pfn(elem, ss, dc);
         
-        if (i < arr.size() - 1) {
-            ss << endl;
-            srs_padding(ss, level);
+        if (i < limit - 1) {
+            delimiter(ss, dc);
         }
     }
     return ss;
 }
 
+void srs_delimiter_inline(stringstream& ss, SrsMp4DumpContext dc)
+{
+    ss << ",";
+}
+
+void srs_delimiter_inlinespace(stringstream& ss, SrsMp4DumpContext dc)
+{
+    ss << ", ";
+}
+
+void srs_delimiter_newline(stringstream& ss, SrsMp4DumpContext dc)
+{
+    ss << endl;
+    srs_padding(ss, dc);
+}
+
 template<typename T>
-stringstream& srs_print_mp4_vector_ptr(std::vector<T>& arr, stringstream& ss, int level) {
-    return __srs_print_mp4_vector_ptr(arr, ss, level, false);
+void srs_pfn_box(T& elem, stringstream& ss, SrsMp4DumpContext dc)
+{
+    elem.dumps(ss, dc);
 }
 
 template<typename T>
-stringstream& srs_print_mp4_vector_elem(std::vector<T>& arr, stringstream& ss, int level)
+void srs_pfn_detail(T& elem, stringstream& ss, SrsMp4DumpContext dc)
 {
-    for (size_t i = 0; i < arr.size(); i++) {
-        srs_print_mp4_type(ss, (uint32_t)arr[i]);
-        
-        if (i < arr.size() - 1) {
-            ss << ",";
-        }
-    }
-    return ss;
+    elem.dumps_detail(ss, dc);
 }
 
-template<>
-stringstream& srs_print_mp4_vector(std::vector<SrsMp4BoxBrand>& arr, stringstream& ss, int level)
+template<typename T>
+void srs_pfn_pbox(T*& elem, stringstream& ss, SrsMp4DumpContext dc)
 {
-    return srs_print_mp4_vector_elem(arr, ss, level);
+    elem->dumps(ss, dc);
 }
 
-template<>
-stringstream& srs_print_mp4_vector(std::vector<SrsMp4DataEntryBox*>& arr, stringstream& ss, int level)
+template<typename T>
+void srs_pfn_pdetail(T*& elem, stringstream& ss, SrsMp4DumpContext dc)
 {
-    return srs_print_mp4_vector_ptr(arr, ss, level);
+    elem->dumps_detail(ss, dc);
 }
 
-template<>
-stringstream& srs_print_mp4_vector(std::vector<SrsMp4SampleEntry*>& arr, stringstream& ss, int level)
+template<typename T>
+void srs_pfn_types(T& elem, stringstream& ss, SrsMp4DumpContext dc)
 {
-    return __srs_print_mp4_vector_ptr(arr, ss, level, true);
+    srs_print_mp4_type(ss, (uint32_t)elem);
 }
 
-stringstream& srs_print_bytes(stringstream& ss, const char* p, int size, int level, int line = 16, int max = -1)
+template<typename T>
+void srs_pfn_hex(T& elem, stringstream& ss, SrsMp4DumpContext dc)
+{
+    ss << "0x" << std::setw(2) << std::setfill('0') << std::hex << (uint32_t)(uint8_t)elem << std::dec;
+}
+
+template<typename T>
+void srs_pfn_elems(T& elem, stringstream& ss, SrsMp4DumpContext dc)
+{
+    ss << elem;
+}
+
+stringstream& srs_print_bytes(stringstream& ss, const char* p, int size, SrsMp4DumpContext dc, int line = SrsSummaryCount, int max = -1)
 {
     if (max == -1) {
         max = size;
@@ -151,7 +173,7 @@ stringstream& srs_print_bytes(stringstream& ss, const char* p, int size, int lev
              ss << ", ";
              if (((i+1)%line) == 0) {
                  ss << endl;
-                 srs_padding(ss, level);
+                 srs_padding(ss, dc);
              }
         }
     }
@@ -195,6 +217,13 @@ int srs_mp4_string_read(SrsBuffer* buf, string& v, int left)
     buf->skip((int)len + 1);
     
     return ret;
+}
+
+SrsMp4DumpContext SrsMp4DumpContext::indent()
+{
+    SrsMp4DumpContext ctx = *this;
+    ctx.level++;
+    return ctx;
 }
 
 SrsMp4Box::SrsMp4Box()
@@ -278,9 +307,9 @@ int SrsMp4Box::remove(SrsMp4BoxType bt)
     return nb_removed;
 }
 
-stringstream& SrsMp4Box::dumps(stringstream& ss, int level)
+stringstream& SrsMp4Box::dumps(stringstream& ss, SrsMp4DumpContext dc)
 {
-    srs_padding(ss, level);
+    srs_padding(ss, dc);
     srs_print_mp4_type(ss, (uint32_t)type);
     
     ss << ", " << sz();
@@ -289,7 +318,7 @@ stringstream& SrsMp4Box::dumps(stringstream& ss, int level)
     }
     ss << "B";
     
-    dumps_detail(ss, level);
+    dumps_detail(ss, dc);
     
     if (!boxes.empty()) {
         ss << ", " << boxes.size() << " boxes";
@@ -304,7 +333,7 @@ stringstream& SrsMp4Box::dumps(stringstream& ss, int level)
     vector<SrsMp4Box*>::iterator it;
     for (it = boxes.begin(); it != boxes.end(); ++it) {
         SrsMp4Box* box = *it;
-        box->dumps(ss, level + 1);
+        box->dumps(ss, dc.indent());
     }
     
     return ss;
@@ -380,9 +409,16 @@ int SrsMp4Box::discovery(SrsBuffer* buf, SrsMp4Box** ppbox)
         case SrsMp4BoxTypeUDTA: box = new SrsMp4UserDataBox(); break;
         case SrsMp4BoxTypeMVEX: box = new SrsMp4MovieExtendsBox(); break;
         case SrsMp4BoxTypeTREX: box = new SrsMp4TrackExtendsBox(); break;
+        case SrsMp4BoxTypeSTYP: box = new SrsMp4SegmentTypeBox(); break;
+        case SrsMp4BoxTypeMOOF: box = new SrsMp4MovieFragmentBox(); break;
+        case SrsMp4BoxTypeMFHD: box = new SrsMp4MovieFragmentHeaderBox(); break;
+        case SrsMp4BoxTypeTRAF: box = new SrsMp4TrackFragmentBox(); break;
+        case SrsMp4BoxTypeTFHD: box = new SrsMp4TrackFragmentHeaderBox(); break;
+        case SrsMp4BoxTypeTFDT: box = new SrsMp4TrackFragmentDecodeTimeBox(); break;
+        case SrsMp4BoxTypeTRUN: box = new SrsMp4TrackFragmentRunBox(); break;
         // Skip some unknown boxes.
         case SrsMp4BoxTypeFREE: case SrsMp4BoxTypeSKIP: case SrsMp4BoxTypePASP:
-            box = new SrsMp4FreeSpaceBox(); break;
+            box = new SrsMp4FreeSpaceBox(type); break;
         default:
             ret = ERROR_MP4_BOX_ILLEGAL_TYPE;
             srs_error("MP4 illegal box type=%d. ret=%d", type, ret);
@@ -610,7 +646,7 @@ bool SrsMp4Box::boxes_in_header()
     return false;
 }
 
-stringstream& SrsMp4Box::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4Box::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
     return ss;
 }
@@ -680,12 +716,19 @@ int SrsMp4FullBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4FullBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4FullBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4Box::dumps_detail(ss, dc);
+    
+    ss << ", FB(4B";
+    
     if (version != 0 || flags != 0) {
-        ss << ", V" << uint32_t(version)
-            << "(0x" << std::setw(2) << std::setfill('0') << std::hex << flags << std::dec << ")";
+        ss << ",V" << uint32_t(version)
+            << ",0x" << std::setw(2) << std::setfill('0') << std::hex << flags << std::dec;
     }
+    
+    ss << ")";
+    
     return ss;
 }
 
@@ -698,6 +741,13 @@ SrsMp4FileTypeBox::SrsMp4FileTypeBox()
 
 SrsMp4FileTypeBox::~SrsMp4FileTypeBox()
 {
+}
+
+void SrsMp4FileTypeBox::set_compatible_brands(SrsMp4BoxBrand b0, SrsMp4BoxBrand b1)
+{
+    compatible_brands.resize(2);
+    compatible_brands[0] = b0;
+    compatible_brands[1] = b1;
 }
 
 void SrsMp4FileTypeBox::set_compatible_brands(SrsMp4BoxBrand b0, SrsMp4BoxBrand b1, SrsMp4BoxBrand b2, SrsMp4BoxBrand b3)
@@ -757,8 +807,10 @@ int SrsMp4FileTypeBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4FileTypeBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4FileTypeBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4Box::dumps_detail(ss, dc);
+    
     ss << ", brands:";
     srs_print_mp4_type(ss, (uint32_t)major_brand);
     
@@ -766,9 +818,547 @@ stringstream& SrsMp4FileTypeBox::dumps_detail(stringstream& ss, int level)
     
     if (!compatible_brands.empty()) {
         ss << "(";
-        srs_print_mp4_vector(compatible_brands, ss, level);
+        srs_dumps_array(compatible_brands, ss, dc, srs_pfn_types, srs_delimiter_inline);
         ss << ")";
     }
+    return ss;
+}
+
+SrsMp4SegmentTypeBox::SrsMp4SegmentTypeBox()
+{
+    type = SrsMp4BoxTypeSTYP;
+}
+
+SrsMp4SegmentTypeBox::~SrsMp4SegmentTypeBox()
+{
+}
+
+SrsMp4MovieFragmentBox::SrsMp4MovieFragmentBox()
+{
+    type = SrsMp4BoxTypeMOOF;
+}
+
+SrsMp4MovieFragmentBox::~SrsMp4MovieFragmentBox()
+{
+}
+
+SrsMp4MovieFragmentHeaderBox* SrsMp4MovieFragmentBox::mfhd()
+{
+    SrsMp4Box* box = get(SrsMp4BoxTypeMFHD);
+    return dynamic_cast<SrsMp4MovieFragmentHeaderBox*>(box);
+}
+
+void SrsMp4MovieFragmentBox::set_mfhd(SrsMp4MovieFragmentHeaderBox* v)
+{
+    remove(SrsMp4BoxTypeMFHD);
+    boxes.push_back(v);
+}
+
+SrsMp4TrackFragmentBox* SrsMp4MovieFragmentBox::traf()
+{
+    SrsMp4Box* box = get(SrsMp4BoxTypeTRAF);
+    return dynamic_cast<SrsMp4TrackFragmentBox*>(box);
+}
+
+void SrsMp4MovieFragmentBox::set_traf(SrsMp4TrackFragmentBox* v)
+{
+    remove(SrsMp4BoxTypeTRAF);
+    boxes.push_back(v);
+}
+
+SrsMp4MovieFragmentHeaderBox::SrsMp4MovieFragmentHeaderBox()
+{
+    type = SrsMp4BoxTypeMFHD;
+    
+    sequence_number = 0;
+}
+
+SrsMp4MovieFragmentHeaderBox::~SrsMp4MovieFragmentHeaderBox()
+{
+}
+
+int SrsMp4MovieFragmentHeaderBox::nb_header()
+{
+    return SrsMp4FullBox::nb_header() + 4;
+}
+
+int SrsMp4MovieFragmentHeaderBox::encode_header(SrsBuffer* buf)
+{
+    int ret = ERROR_SUCCESS;
+    
+    if ((ret = SrsMp4FullBox::encode_header(buf)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    buf->write_4bytes(sequence_number);
+    
+    return ret;
+}
+
+int SrsMp4MovieFragmentHeaderBox::decode_header(SrsBuffer* buf)
+{
+    int ret = ERROR_SUCCESS;
+    
+    if ((ret = SrsMp4FullBox::decode_header(buf)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    sequence_number = buf->read_4bytes();
+    
+    return ret;
+}
+
+stringstream& SrsMp4MovieFragmentHeaderBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
+{
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
+    ss << ", sequence=" << sequence_number;
+    return ss;
+}
+
+SrsMp4TrackFragmentBox::SrsMp4TrackFragmentBox()
+{
+    type = SrsMp4BoxTypeTRAF;
+}
+
+SrsMp4TrackFragmentBox::~SrsMp4TrackFragmentBox()
+{
+}
+
+SrsMp4TrackFragmentHeaderBox* SrsMp4TrackFragmentBox::tfhd()
+{
+    SrsMp4Box* box = get(SrsMp4BoxTypeTFHD);
+    return dynamic_cast<SrsMp4TrackFragmentHeaderBox*>(box);
+}
+
+void SrsMp4TrackFragmentBox::set_tfhd(SrsMp4TrackFragmentHeaderBox* v)
+{
+    remove(SrsMp4BoxTypeTFHD);
+    boxes.push_back(v);
+}
+
+SrsMp4TrackFragmentDecodeTimeBox* SrsMp4TrackFragmentBox::tfdt()
+{
+    SrsMp4Box* box = get(SrsMp4BoxTypeTFDT);
+    return dynamic_cast<SrsMp4TrackFragmentDecodeTimeBox*>(box);
+}
+
+void SrsMp4TrackFragmentBox::set_tfdt(SrsMp4TrackFragmentDecodeTimeBox* v)
+{
+    remove(SrsMp4BoxTypeTFDT);
+    boxes.push_back(v);
+}
+
+SrsMp4TrackFragmentRunBox* SrsMp4TrackFragmentBox::trun()
+{
+    SrsMp4Box* box = get(SrsMp4BoxTypeTRUN);
+    return dynamic_cast<SrsMp4TrackFragmentRunBox*>(box);
+}
+
+void SrsMp4TrackFragmentBox::set_trun(SrsMp4TrackFragmentRunBox* v)
+{
+    remove(SrsMp4BoxTypeTRUN);
+    boxes.push_back(v);
+}
+
+SrsMp4TrackFragmentHeaderBox::SrsMp4TrackFragmentHeaderBox()
+{
+    type = SrsMp4BoxTypeTFHD;
+    
+    flags = 0;
+    base_data_offset = 0;
+    track_id = sample_description_index = 0;
+    default_sample_duration = default_sample_size = 0;
+    default_sample_flags = 0;
+}
+
+SrsMp4TrackFragmentHeaderBox::~SrsMp4TrackFragmentHeaderBox()
+{
+}
+
+int SrsMp4TrackFragmentHeaderBox::nb_header()
+{
+    int size = SrsMp4FullBox::nb_header() + 4;
+    
+    if ((flags&SrsMp4TfhdFlagsBaseDataOffset) == SrsMp4TfhdFlagsBaseDataOffset) {
+        size += 8;
+    }
+    if ((flags&SrsMp4TfhdFlagsSampleDescriptionIndex) == SrsMp4TfhdFlagsSampleDescriptionIndex) {
+        size += 4;
+    }
+    if ((flags&SrsMp4TfhdFlagsDefaultSampleDuration) == SrsMp4TfhdFlagsDefaultSampleDuration) {
+        size += 4;
+    }
+    if ((flags&SrsMp4TfhdFlagsDefautlSampleSize) == SrsMp4TfhdFlagsDefautlSampleSize) {
+        size += 4;
+    }
+    if ((flags&SrsMp4TfhdFlagsDefaultSampleFlags) == SrsMp4TfhdFlagsDefaultSampleFlags) {
+        size += 4;
+    }
+    
+    return size;
+}
+
+int SrsMp4TrackFragmentHeaderBox::encode_header(SrsBuffer* buf)
+{
+    int ret = ERROR_SUCCESS;
+    
+    if ((ret = SrsMp4FullBox::encode_header(buf)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    buf->write_4bytes(track_id);
+    
+    if ((flags&SrsMp4TfhdFlagsBaseDataOffset) == SrsMp4TfhdFlagsBaseDataOffset) {
+        buf->write_8bytes(base_data_offset);
+    }
+    if ((flags&SrsMp4TfhdFlagsSampleDescriptionIndex) == SrsMp4TfhdFlagsSampleDescriptionIndex) {
+        buf->write_4bytes(sample_description_index);
+    }
+    if ((flags&SrsMp4TfhdFlagsDefaultSampleDuration) == SrsMp4TfhdFlagsDefaultSampleDuration) {
+        buf->write_4bytes(default_sample_duration);
+    }
+    if ((flags&SrsMp4TfhdFlagsDefautlSampleSize) == SrsMp4TfhdFlagsDefautlSampleSize) {
+        buf->write_4bytes(default_sample_size);
+    }
+    if ((flags&SrsMp4TfhdFlagsDefaultSampleFlags) == SrsMp4TfhdFlagsDefaultSampleFlags) {
+        buf->write_4bytes(default_sample_flags);
+    }
+    
+    return ret;
+}
+
+int SrsMp4TrackFragmentHeaderBox::decode_header(SrsBuffer* buf)
+{
+    int ret = ERROR_SUCCESS;
+    
+    if ((ret = SrsMp4FullBox::decode_header(buf)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    track_id = buf->read_4bytes();
+    
+    if ((flags&SrsMp4TfhdFlagsBaseDataOffset) == SrsMp4TfhdFlagsBaseDataOffset) {
+        base_data_offset = buf->read_8bytes();
+    }
+    if ((flags&SrsMp4TfhdFlagsSampleDescriptionIndex) == SrsMp4TfhdFlagsSampleDescriptionIndex) {
+        sample_description_index = buf->read_4bytes();
+    }
+    if ((flags&SrsMp4TfhdFlagsDefaultSampleDuration) == SrsMp4TfhdFlagsDefaultSampleDuration) {
+        default_sample_duration = buf->read_4bytes();
+    }
+    if ((flags&SrsMp4TfhdFlagsDefautlSampleSize) == SrsMp4TfhdFlagsDefautlSampleSize) {
+        default_sample_size = buf->read_4bytes();
+    }
+    if ((flags&SrsMp4TfhdFlagsDefaultSampleFlags) == SrsMp4TfhdFlagsDefaultSampleFlags) {
+        default_sample_flags = buf->read_4bytes();
+    }
+    
+    return ret;
+}
+
+stringstream& SrsMp4TrackFragmentHeaderBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
+{
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
+    ss << ", track=" << track_id;
+    
+    if ((flags&SrsMp4TfhdFlagsBaseDataOffset) == SrsMp4TfhdFlagsBaseDataOffset) {
+        ss << ", bdo=" << base_data_offset;
+    }
+    if ((flags&SrsMp4TfhdFlagsSampleDescriptionIndex) == SrsMp4TfhdFlagsSampleDescriptionIndex) {
+        ss << ", sdi=" << sample_description_index;
+    }
+    if ((flags&SrsMp4TfhdFlagsDefaultSampleDuration) == SrsMp4TfhdFlagsDefaultSampleDuration) {
+        ss << ", dsu=" << default_sample_duration;
+    }
+    if ((flags&SrsMp4TfhdFlagsDefautlSampleSize) == SrsMp4TfhdFlagsDefautlSampleSize) {
+        ss << ", dss=" << default_sample_size;
+    }
+    if ((flags&SrsMp4TfhdFlagsDefaultSampleFlags) == SrsMp4TfhdFlagsDefaultSampleFlags) {
+        ss << ", dsf=" << default_sample_flags;
+    }
+    
+    if ((flags&SrsMp4TfhdFlagsDurationIsEmpty) == SrsMp4TfhdFlagsDurationIsEmpty) {
+        ss << ", empty-duration";
+    }
+    if ((flags&SrsMp4TfhdFlagsDefaultBaseIsMoof) == SrsMp4TfhdFlagsDefaultBaseIsMoof) {
+        ss << ", moof-base";
+    }
+    
+    return ss;
+}
+
+SrsMp4TrackFragmentDecodeTimeBox::SrsMp4TrackFragmentDecodeTimeBox()
+{
+    type = SrsMp4BoxTypeTFDT;
+    base_media_decode_time = 0;
+}
+
+SrsMp4TrackFragmentDecodeTimeBox::~SrsMp4TrackFragmentDecodeTimeBox()
+{
+}
+
+int SrsMp4TrackFragmentDecodeTimeBox::nb_header()
+{
+    return SrsMp4FullBox::nb_header() + (version? 8:4);
+}
+
+int SrsMp4TrackFragmentDecodeTimeBox::encode_header(SrsBuffer* buf)
+{
+    int ret = ERROR_SUCCESS;
+    
+    if ((ret = SrsMp4FullBox::encode_header(buf)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    if (version) {
+        buf->write_8bytes(base_media_decode_time);
+    } else {
+        buf->write_4bytes((uint32_t)base_media_decode_time);
+    }
+    
+    return ret;
+}
+
+int SrsMp4TrackFragmentDecodeTimeBox::decode_header(SrsBuffer* buf)
+{
+    int ret = ERROR_SUCCESS;
+    
+    if ((ret = SrsMp4FullBox::decode_header(buf)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    if (version) {
+        base_media_decode_time = buf->read_8bytes();
+    } else {
+        base_media_decode_time = buf->read_4bytes();
+    }
+    
+    return ret;
+}
+
+stringstream& SrsMp4TrackFragmentDecodeTimeBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
+{
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
+    ss << ", bmdt=" << base_media_decode_time;
+    
+    return ss;
+}
+
+SrsMp4TrunEntry::SrsMp4TrunEntry(SrsMp4FullBox* o)
+{
+    owner = o;
+    sample_duration = sample_size = sample_flags = 0;
+    sample_composition_time_offset = 0;
+}
+
+SrsMp4TrunEntry::~SrsMp4TrunEntry()
+{
+}
+
+int SrsMp4TrunEntry::nb_header()
+{
+    int size = 0;
+    
+    if ((owner->flags&SrsMp4TrunFlagsSampleDuration) == SrsMp4TrunFlagsSampleDuration) {
+        size += 4;
+    }
+    if ((owner->flags&SrsMp4TrunFlagsSampleSize) == SrsMp4TrunFlagsSampleSize) {
+        size += 4;
+    }
+    if ((owner->flags&SrsMp4TrunFlagsSampleFlag) == SrsMp4TrunFlagsSampleFlag) {
+        size += 4;
+    }
+    if ((owner->flags&SrsMp4TrunFlagsSampleCtsOffset) == SrsMp4TrunFlagsSampleCtsOffset) {
+        size += 4;
+    }
+    
+    return size;
+}
+
+int SrsMp4TrunEntry::encode_header(SrsBuffer* buf)
+{
+    int ret = ERROR_SUCCESS;
+    
+    if ((owner->flags&SrsMp4TrunFlagsSampleDuration) == SrsMp4TrunFlagsSampleDuration) {
+        buf->write_4bytes(sample_duration);
+    }
+    if ((owner->flags&SrsMp4TrunFlagsSampleSize) == SrsMp4TrunFlagsSampleSize) {
+        buf->write_4bytes(sample_size);
+    }
+    if ((owner->flags&SrsMp4TrunFlagsSampleFlag) == SrsMp4TrunFlagsSampleFlag) {
+        buf->write_4bytes(sample_flags);
+    }
+    if ((owner->flags&SrsMp4TrunFlagsSampleCtsOffset) == SrsMp4TrunFlagsSampleCtsOffset) {
+        if (!owner->version) {
+            uint32_t v = (uint32_t)sample_composition_time_offset;
+            buf->write_4bytes(v);
+        } else {
+            int32_t v = (int32_t)sample_composition_time_offset;
+            buf->write_4bytes(v);
+        }
+    }
+    
+    return ret;
+}
+
+int SrsMp4TrunEntry::decode_header(SrsBuffer* buf)
+{
+    int ret = ERROR_SUCCESS;
+    
+    if ((owner->flags&SrsMp4TrunFlagsSampleDuration) == SrsMp4TrunFlagsSampleDuration) {
+        sample_duration = buf->read_4bytes();
+    }
+    if ((owner->flags&SrsMp4TrunFlagsSampleSize) == SrsMp4TrunFlagsSampleSize) {
+        sample_size = buf->read_4bytes();
+    }
+    if ((owner->flags&SrsMp4TrunFlagsSampleFlag) == SrsMp4TrunFlagsSampleFlag) {
+        sample_flags = buf->read_4bytes();
+    }
+    if ((owner->flags&SrsMp4TrunFlagsSampleCtsOffset) == SrsMp4TrunFlagsSampleCtsOffset) {
+        if (!owner->version) {
+            uint32_t v = buf->read_4bytes();
+            sample_composition_time_offset = v;
+        } else {
+            int32_t v = buf->read_4bytes();
+            sample_composition_time_offset = v;
+        }
+    }
+    
+    return ret;
+}
+
+stringstream& SrsMp4TrunEntry::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
+{
+    if ((owner->flags&SrsMp4TrunFlagsSampleDuration) == SrsMp4TrunFlagsSampleDuration) {
+        ss << "duration=" << sample_duration;
+    }
+    if ((owner->flags&SrsMp4TrunFlagsSampleSize) == SrsMp4TrunFlagsSampleSize) {
+        ss << ", size=" << sample_size;
+    }
+    if ((owner->flags&SrsMp4TrunFlagsSampleFlag) == SrsMp4TrunFlagsSampleFlag) {
+        ss << ", flags=" << sample_flags;
+    }
+    if ((owner->flags&SrsMp4TrunFlagsSampleCtsOffset) == SrsMp4TrunFlagsSampleCtsOffset) {
+        ss << ", cts=" << sample_composition_time_offset;
+    }
+    return ss;
+}
+
+SrsMp4TrackFragmentRunBox::SrsMp4TrackFragmentRunBox()
+{
+    type = SrsMp4BoxTypeTRUN;
+    sample_count = first_sample_flags = 0;
+    data_offset = 0;
+}
+
+SrsMp4TrackFragmentRunBox::~SrsMp4TrackFragmentRunBox()
+{
+    vector<SrsMp4TrunEntry*>::iterator it;
+    for (it = entries.begin(); it != entries.end(); ++it) {
+        SrsMp4TrunEntry* entry = *it;
+        srs_freep(entry);
+    }
+}
+
+int SrsMp4TrackFragmentRunBox::nb_header()
+{
+    int size = SrsMp4FullBox::nb_header() + 4;
+    
+    if ((flags&SrsMp4TrunFlagsDataOffset) == SrsMp4TrunFlagsDataOffset) {
+        size += 4;
+    }
+    if ((flags&SrsMp4TrunFlagsFirstSample) == SrsMp4TrunFlagsFirstSample) {
+        size += 4;
+    }
+    
+    vector<SrsMp4TrunEntry*>::iterator it;
+    for (it = entries.begin(); it != entries.end(); ++it) {
+        SrsMp4TrunEntry* entry = *it;
+        size += entry->nb_header();
+    }
+    
+    return size;
+}
+
+int SrsMp4TrackFragmentRunBox::encode_header(SrsBuffer* buf)
+{
+    int ret = ERROR_SUCCESS;
+    
+    if ((ret = SrsMp4FullBox::encode_header(buf)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    buf->write_4bytes(sample_count);
+    
+    if ((flags&SrsMp4TrunFlagsDataOffset) == SrsMp4TrunFlagsDataOffset) {
+        buf->write_4bytes(data_offset);
+    }
+    if ((flags&SrsMp4TrunFlagsFirstSample) == SrsMp4TrunFlagsFirstSample) {
+        buf->write_4bytes(first_sample_flags);
+    }
+    
+    vector<SrsMp4TrunEntry*>::iterator it;
+    for (it = entries.begin(); it != entries.end(); ++it) {
+        SrsMp4TrunEntry* entry = *it;
+        if ((ret = entry->encode_header(buf)) != ERROR_SUCCESS) {
+            return ret;
+        }
+    }
+    
+    return ret;
+}
+
+int SrsMp4TrackFragmentRunBox::decode_header(SrsBuffer* buf)
+{
+    int ret = ERROR_SUCCESS;
+    
+    if ((ret = SrsMp4FullBox::decode_header(buf)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    sample_count = buf->read_4bytes();
+    
+    if ((flags&SrsMp4TrunFlagsDataOffset) == SrsMp4TrunFlagsDataOffset) {
+        data_offset = buf->read_4bytes();
+    }
+    if ((flags&SrsMp4TrunFlagsFirstSample) == SrsMp4TrunFlagsFirstSample) {
+        first_sample_flags = buf->read_4bytes();
+    }
+    
+    for (int i = 0; i < sample_count; i++) {
+        SrsMp4TrunEntry* entry = new SrsMp4TrunEntry(this);
+        entries.push_back(entry);
+        
+        if ((ret = entry->decode_header(buf)) != ERROR_SUCCESS) {
+            return ret;
+        }
+    }
+    
+    return ret;
+}
+
+stringstream& SrsMp4TrackFragmentRunBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
+{
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
+    ss << ", samples=" << sample_count;
+    
+    if ((flags&SrsMp4TrunFlagsDataOffset) == SrsMp4TrunFlagsDataOffset) {
+        ss << ", data-offset=" << data_offset;
+    }
+    if ((flags&SrsMp4TrunFlagsFirstSample) == SrsMp4TrunFlagsFirstSample) {
+        ss << ", first-sample=" << first_sample_flags;
+    }
+    
+    if (sample_count > 0) {
+        ss << endl;
+        srs_padding(ss, dc.indent());
+        srs_dumps_array(entries, ss, dc.indent(), srs_pfn_pdetail, srs_delimiter_newline);
+    }
+    
     return ss;
 }
 
@@ -808,8 +1398,6 @@ int SrsMp4MediaDataBox::decode(SrsBuffer* buf)
     
     nb_data = (int)(sz() - nb_header());
     
-    // Because the 
-    
     return ret;
 }
 
@@ -823,9 +1411,18 @@ int SrsMp4MediaDataBox::decode_boxes(SrsBuffer* buf)
     return ERROR_SUCCESS;
 }
 
-SrsMp4FreeSpaceBox::SrsMp4FreeSpaceBox()
+stringstream& SrsMp4MediaDataBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
-    type = SrsMp4BoxTypeFREE; // 'free' or 'skip'
+    SrsMp4Box::dumps_detail(ss, dc);
+    
+    ss << ", total " << nb_data << " bytes";
+    
+    return ss;
+}
+
+SrsMp4FreeSpaceBox::SrsMp4FreeSpaceBox(SrsMp4BoxType v)
+{
+    type = v; // 'free' or 'skip'
 }
 
 SrsMp4FreeSpaceBox::~SrsMp4FreeSpaceBox()
@@ -869,14 +1466,16 @@ int SrsMp4FreeSpaceBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4FreeSpaceBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4FreeSpaceBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4Box::dumps_detail(ss, dc);
+    
     ss << ", free " << data.size() << "B";
     
     if (!data.empty()) {
         ss << endl;
-        srs_padding(ss, level + 1);
-        srs_print_bytes(ss, &data[0], (int)data.size(), level + 1);
+        srs_padding(ss, dc.indent());
+        srs_dumps_array(&data[0], (int)data.size(), ss, dc.indent(), srs_pfn_hex, srs_delimiter_inlinespace);
     }
     return ss;
 }
@@ -1105,8 +1704,10 @@ int SrsMp4MovieHeaderBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4MovieHeaderBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4MovieHeaderBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
     ss << ", " << std::setprecision(2) << duration() << "ms, TBN=" << timescale << ", nTID=" << next_track_ID;
     return ss;
 }
@@ -1180,6 +1781,16 @@ int SrsMp4TrackExtendsBox::decode_header(SrsBuffer* buf)
     default_sample_flags = buf->read_4bytes();
     
     return ret;
+}
+
+stringstream& SrsMp4TrackExtendsBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
+{
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
+    ss << ", track=#" << track_ID << ", default-sample("
+        << "index:" << default_sample_description_index << ", size:" << default_sample_size
+        << ", duration:" << default_sample_duration << ", flags:" << default_sample_flags << ")";
+    return ss;
 }
 
 SrsMp4TrackBox::SrsMp4TrackBox()
@@ -1453,8 +2064,10 @@ int SrsMp4TrackHeaderBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4TrackHeaderBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4TrackHeaderBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
     ss << ", track #" << track_ID << ", " << duration << "TBN";
     
     if (volume) {
@@ -1482,12 +2095,12 @@ SrsMp4ElstEntry::SrsMp4ElstEntry()
     media_rate_fraction = 0;
 }
 
-stringstream& SrsMp4ElstEntry::dumps(stringstream& ss, int level)
+stringstream& SrsMp4ElstEntry::dumps(stringstream& ss, SrsMp4DumpContext dc)
 {
-    return dumps_detail(ss, level);
+    return dumps_detail(ss, dc);
 }
 
-stringstream& SrsMp4ElstEntry::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4ElstEntry::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
     ss << "Entry, " << segment_duration << "TBN, start=" << media_time << "TBN"
         << ", rate=" << media_rate_integer << "," << media_rate_fraction;
@@ -1573,14 +2186,16 @@ int SrsMp4EditListBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4EditListBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4EditListBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
     ss << ", " << entries.size() << " childs";
     
     if (!entries.empty()) {
         ss << "(+)" << endl;
-        srs_padding(ss, level + 1);
-        srs_print_mp4_vector(entries, ss, level + 1);
+        srs_padding(ss, dc.indent());
+        srs_dumps_array(entries, ss, dc.indent(), srs_pfn_detail, srs_delimiter_newline);
     }
     
     return ss;
@@ -1756,8 +2371,10 @@ int SrsMp4MediaHeaderBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4MediaHeaderBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4MediaHeaderBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
     ss << ", TBN=" << timescale << ", " << duration << "TBN";
     if (language) {
         ss << ", LANG=" << language0() << language1() << language2();
@@ -1830,8 +2447,10 @@ int SrsMp4HandlerReferenceBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4HandlerReferenceBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4HandlerReferenceBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
     ss << ", ";
     srs_print_mp4_type(ss, (uint32_t)handler_type);
     ss << ", " <<  name;
@@ -2082,7 +2701,7 @@ int SrsMp4DataEntryUrlBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4DataEntryUrlBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4DataEntryUrlBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
     ss << "URL: " << location;
     if (location.empty()) {
@@ -2140,7 +2759,7 @@ int SrsMp4DataEntryUrnBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4DataEntryUrnBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4DataEntryUrnBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
     ss << "URN: " << name << ", " << location;
     return ss;
@@ -2250,13 +2869,15 @@ int SrsMp4DataReferenceBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4DataReferenceBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4DataReferenceBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
     ss << ", " << entries.size() << " childs";
     if (!entries.empty()) {
         ss << "(+)" << endl;
-        srs_padding(ss, level + 1);
-        srs_print_mp4_vector(entries, ss, level + 1);
+        srs_padding(ss, dc.indent());
+        srs_dumps_array(entries, ss, dc.indent(), srs_pfn_pdetail, srs_delimiter_newline);
     }
     return ss;
 }
@@ -2413,8 +3034,10 @@ int SrsMp4SampleEntry::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4SampleEntry::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4SampleEntry::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4Box::dumps_detail(ss, dc);
+    
     ss << ", refs#" << data_reference_index;
     return ss;
 }
@@ -2506,9 +3129,9 @@ int SrsMp4VisualSampleEntry::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4VisualSampleEntry::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4VisualSampleEntry::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
-    SrsMp4SampleEntry::dumps_detail(ss, level);
+    SrsMp4SampleEntry::dumps_detail(ss, dc);
     
     ss << ", size=" << width << "x" << height;
     return ss;
@@ -2560,11 +3183,13 @@ int SrsMp4AvccBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4AvccBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4AvccBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4Box::dumps_detail(ss, dc);
+    
     ss << ", AVC Config: " << (int)avc_config.size() << "B" << endl;
-    srs_padding(ss, level + 1);
-    srs_print_bytes(ss, (const char*)&avc_config[0], (int)avc_config.size(), level + 1);
+    srs_padding(ss, dc.indent());
+    srs_print_bytes(ss, (const char*)&avc_config[0], (int)avc_config.size(), dc.indent());
     return ss;
 }
 
@@ -2642,9 +3267,9 @@ int SrsMp4AudioSampleEntry::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4AudioSampleEntry::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4AudioSampleEntry::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
-    SrsMp4SampleEntry::dumps_detail(ss, level);
+    SrsMp4SampleEntry::dumps_detail(ss, dc);
     
     ss << ", " << channelcount << " channels, " << samplesize << " bits"
         << ", " << (samplerate>>16) << " Hz";
@@ -2768,7 +3393,7 @@ int SrsMp4BaseDescriptor::decode(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4BaseDescriptor::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4BaseDescriptor::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
     ss << ", tag=" << "0x" << std::setw(2) << std::setfill('0') << std::hex << (uint32_t)(uint8_t)tag << std::dec;
     return ss;
@@ -2812,15 +3437,15 @@ int SrsMp4DecoderSpecificInfo::decode_payload(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4DecoderSpecificInfo::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4DecoderSpecificInfo::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
-    SrsMp4BaseDescriptor::dumps_detail(ss, level);
+    SrsMp4BaseDescriptor::dumps_detail(ss, dc);
     
     ss << ", ASC " << asc.size() << "B";
     
     ss << endl;
-    srs_padding(ss, level + 1);
-    return srs_print_bytes(ss, (const char*)&asc[0], (int)asc.size(), level + 1);
+    srs_padding(ss, dc.indent());
+    return srs_print_bytes(ss, (const char*)&asc[0], (int)asc.size(), dc.indent());
 }
 
 SrsMp4DecoderConfigDescriptor::SrsMp4DecoderConfigDescriptor()
@@ -2890,17 +3515,17 @@ int SrsMp4DecoderConfigDescriptor::decode_payload(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4DecoderConfigDescriptor::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4DecoderConfigDescriptor::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
-    SrsMp4BaseDescriptor::dumps_detail(ss, level);
+    SrsMp4BaseDescriptor::dumps_detail(ss, dc);
     
     ss << ", type=" << objectTypeIndication << ", stream=" << streamType;
     
     ss << endl;
-    srs_padding(ss, level + 1);
+    srs_padding(ss, dc.indent());
     
     ss << "decoder specific";
-    return decSpecificInfo->dumps_detail(ss, level + 1);
+    return decSpecificInfo->dumps_detail(ss, dc.indent());
 }
 
 SrsMp4SLConfigDescriptor::SrsMp4SLConfigDescriptor()
@@ -3059,17 +3684,17 @@ int SrsMp4ES_Descriptor::decode_payload(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4ES_Descriptor::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4ES_Descriptor::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
-    SrsMp4BaseDescriptor::dumps_detail(ss, level);
+    SrsMp4BaseDescriptor::dumps_detail(ss, dc);
     
     ss << ", ID=" << ES_ID;
     
     ss << endl;
-    srs_padding(ss, level + 1);
+    srs_padding(ss, dc.indent());
     
     ss << "decoder config";
-    decConfigDescr.dumps_detail(ss, level + 1);
+    decConfigDescr.dumps_detail(ss, dc.indent());
     return ss;
 }
 
@@ -3132,9 +3757,11 @@ int SrsMp4EsdsBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4EsdsBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4EsdsBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
-    return es->dumps_detail(ss, level);
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
+    return es->dumps_detail(ss, dc);
 }
 
 SrsMp4SampleDescriptionBox::SrsMp4SampleDescriptionBox()
@@ -3263,12 +3890,14 @@ bool SrsMp4SampleDescriptionBox::boxes_in_header()
     return true;
 }
 
-stringstream& SrsMp4SampleDescriptionBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4SampleDescriptionBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
     ss << ", " << entries.size() << " childs";
     if (!entries.empty()) {
         ss << "(+)" << endl;
-        srs_print_mp4_vector(entries, ss, level + 1);
+        srs_dumps_array(entries, ss, dc.indent(), srs_pfn_pbox, srs_delimiter_newline);
     }
     return ss;
 }
@@ -3279,8 +3908,9 @@ SrsMp4SttsEntry::SrsMp4SttsEntry()
     sample_delta = 0;
 }
 
-stringstream& SrsMp4SttsEntry::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4SttsEntry::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    ss << "count=" << sample_count << ", delta=" << sample_delta;
     return ss;
 }
 
@@ -3334,7 +3964,7 @@ int SrsMp4DecodingTime2SampleBox::on_sample(uint32_t sample_index, SrsMp4SttsEnt
 
 int SrsMp4DecodingTime2SampleBox::nb_header()
 {
-    return SrsMp4FullBox::nb_header() + 4 + 8 * entries.size();
+    return SrsMp4FullBox::nb_header() + 4 + 8 * (int)entries.size();
 }
 
 int SrsMp4DecodingTime2SampleBox::encode_header(SrsBuffer* buf)
@@ -3345,7 +3975,7 @@ int SrsMp4DecodingTime2SampleBox::encode_header(SrsBuffer* buf)
         return ret;
     }
     
-    buf->write_4bytes(entries.size());
+    buf->write_4bytes((int)entries.size());
     for (size_t i = 0; i < entries.size(); i++) {
         SrsMp4SttsEntry& entry = entries[i];
         buf->write_4bytes(entry.sample_count);
@@ -3376,8 +4006,16 @@ int SrsMp4DecodingTime2SampleBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4DecodingTime2SampleBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4DecodingTime2SampleBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
+    ss << ", " << entries.size() << " childs (+)";
+    if (!entries.empty()) {
+        ss << endl;
+        srs_padding(ss, dc.indent());
+        srs_dumps_array(entries, ss, dc.indent(), srs_pfn_detail, srs_delimiter_newline);
+    }
     return ss;
 }
 
@@ -3387,8 +4025,9 @@ SrsMp4CttsEntry::SrsMp4CttsEntry()
     sample_offset = 0;
 }
 
-stringstream& SrsMp4CttsEntry::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4CttsEntry::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    ss << "count=" << sample_count << ", offset=" << sample_offset;
     return ss;
 }
 
@@ -3442,7 +4081,7 @@ int SrsMp4CompositionTime2SampleBox::on_sample(uint32_t sample_index, SrsMp4Ctts
 
 int SrsMp4CompositionTime2SampleBox::nb_header()
 {
-    return SrsMp4FullBox::nb_header() + 4 + 8 * entries.size();
+    return SrsMp4FullBox::nb_header() + 4 + 8 * (int)entries.size();
 }
 
 int SrsMp4CompositionTime2SampleBox::encode_header(SrsBuffer* buf)
@@ -3453,7 +4092,7 @@ int SrsMp4CompositionTime2SampleBox::encode_header(SrsBuffer* buf)
         return ret;
     }
     
-    buf->write_4bytes(entries.size());
+    buf->write_4bytes((int)entries.size());
     for (size_t i = 0; i < entries.size(); i++) {
         SrsMp4CttsEntry& entry = entries[i];
         buf->write_4bytes(entry.sample_count);
@@ -3492,8 +4131,16 @@ int SrsMp4CompositionTime2SampleBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4CompositionTime2SampleBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4CompositionTime2SampleBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
+    ss << ", " << entries.size() << " childs (+)";
+    if (!entries.empty()) {
+        ss << endl;
+        srs_padding(ss, dc.indent());
+        srs_dumps_array(entries, ss, dc.indent(), srs_pfn_detail, srs_delimiter_newline);
+    }
     return ss;
 }
 
@@ -3561,8 +4208,16 @@ int SrsMp4SyncSampleBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4SyncSampleBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4SyncSampleBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
+    ss << ", count=" << entry_count;
+    if (entry_count > 0) {
+        ss << endl;
+        srs_padding(ss, dc.indent());
+        srs_dumps_array(sample_numbers, entry_count, ss, dc.indent(), srs_pfn_elems, srs_delimiter_inlinespace);
+    }
     return ss;
 }
 
@@ -3573,8 +4228,9 @@ SrsMp4StscEntry::SrsMp4StscEntry()
     sample_description_index = 0;
 }
 
-stringstream& SrsMp4StscEntry::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4StscEntry::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    ss << "first=" << first_chunk << ", samples=" << samples_per_chunk << ", index=" << sample_description_index;
     return ss;
 }
 
@@ -3657,8 +4313,16 @@ int SrsMp4Sample2ChunkBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4Sample2ChunkBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4Sample2ChunkBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
+    ss << ", " << entry_count << " childs (+)";
+    if (entry_count > 0) {
+        ss << endl;
+        srs_padding(ss, dc.indent());
+        srs_dumps_array(entries, entry_count, ss, dc.indent(), srs_pfn_detail, srs_delimiter_newline);
+    }
     return ss;
 }
 
@@ -3715,8 +4379,16 @@ int SrsMp4ChunkOffsetBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4ChunkOffsetBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4ChunkOffsetBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
+    ss << ", " << entry_count << " childs (+)";
+    if (entry_count > 0) {
+        ss << endl;
+        srs_padding(ss, dc.indent());
+        srs_dumps_array(entries, entry_count, ss, dc.indent(), srs_pfn_elems, srs_delimiter_inlinespace);
+    }
     return ss;
 }
 
@@ -3773,8 +4445,16 @@ int SrsMp4ChunkLargeOffsetBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4ChunkLargeOffsetBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4ChunkLargeOffsetBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
+    ss << ", " << entry_count << " childs (+)";
+    if (entry_count > 0) {
+        ss << endl;
+        srs_padding(ss, dc.indent());
+        srs_dumps_array(entries, entry_count, ss, dc.indent(), srs_pfn_elems, srs_delimiter_inlinespace);
+    }
     return ss;
 }
 
@@ -3845,7 +4525,7 @@ int SrsMp4SampleSizeBox::decode_header(SrsBuffer* buf)
     
     sample_size = buf->read_4bytes();
     sample_count = buf->read_4bytes();
-    if (sample_size == 0) {
+    if (!sample_size && sample_count) {
         entry_sizes = new uint32_t[sample_count];
     }
     for (uint32_t i = 0; i < sample_count && sample_size == 0; i++) {
@@ -3855,8 +4535,16 @@ int SrsMp4SampleSizeBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4SampleSizeBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4SampleSizeBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4FullBox::dumps_detail(ss, dc);
+    
+    ss << ", size=" << sample_size << ", " << sample_count << " childs (+)";
+    if (!sample_size  && sample_count> 0) {
+        ss << endl;
+        srs_padding(ss, dc.indent());
+        srs_dumps_array(entry_sizes, sample_count, ss, dc.indent(), srs_pfn_elems, srs_delimiter_inlinespace);
+    }
     return ss;
 }
 
@@ -3906,8 +4594,17 @@ int SrsMp4UserDataBox::decode_header(SrsBuffer* buf)
     return ret;
 }
 
-stringstream& SrsMp4UserDataBox::dumps_detail(stringstream& ss, int level)
+stringstream& SrsMp4UserDataBox::dumps_detail(stringstream& ss, SrsMp4DumpContext dc)
 {
+    SrsMp4Box::dumps_detail(ss, dc);
+    
+    ss << ", total " << data.size() << "B";
+    
+    if (!data.empty()) {
+        ss << endl;
+        srs_padding(ss, dc.indent());
+        srs_dumps_array(&data[0], (int)data.size(), ss, dc.indent(), srs_pfn_hex, srs_delimiter_inlinespace);
+    }
     return ss;
 }
 
@@ -4090,6 +4787,49 @@ int SrsMp4SampleManager::write(SrsMp4MovieBox* moov)
         if ((ret = write_track(SrsFrameTypeAudio, stts, stss, ctts, stsc, stsz, stco)) != ERROR_SUCCESS) {
             return ret;
         }
+    }
+    
+    return ret;
+}
+
+int SrsMp4SampleManager::write(SrsMp4MovieFragmentBox* moof, uint64_t& dts)
+{
+    int ret = ERROR_SUCCESS;
+    
+    SrsMp4TrackFragmentBox* traf = moof->traf();
+    SrsMp4TrackFragmentRunBox* trun = traf->trun();
+    
+    trun->flags = SrsMp4TrunFlagsDataOffset | SrsMp4TrunFlagsSampleDuration
+        | SrsMp4TrunFlagsSampleSize | SrsMp4TrunFlagsSampleFlag | SrsMp4TrunFlagsSampleCtsOffset;
+    trun->sample_count = (uint32_t)samples.size();
+    
+    SrsMp4Sample* previous = NULL;
+    
+    vector<SrsMp4Sample*>::iterator it;
+    for (it = samples.begin(); it != samples.end(); ++it) {
+        SrsMp4Sample* sample = *it;
+        SrsMp4TrunEntry* entry = new SrsMp4TrunEntry(trun);
+        
+        if (!previous) {
+            previous = sample;
+            entry->sample_flags = 0x02000000;
+        } else {
+            entry->sample_flags = 0x01000000;
+        }
+        
+        entry->sample_duration = (uint32_t)srs_min(100, sample->dts - dts);
+        if (entry->sample_duration == 0) {
+            entry->sample_duration = 40;
+        }
+        dts = sample->dts;
+        
+        entry->sample_size = sample->nb_data;
+        entry->sample_composition_time_offset = (int64_t)(sample->pts - sample->dts);
+        if (entry->sample_composition_time_offset < 0) {
+            trun->version = 1;
+        }
+        
+        trun->entries.push_back(entry);
     }
     
     return ret;
@@ -4920,7 +5660,7 @@ int SrsMp4Encoder::flush()
     
     if (!nb_audios && !nb_videos) {
         ret = ERROR_MP4_ILLEGAL_MOOV;
-        srs_error("MP4 missing audio and video track. ret=%d", ret);
+        srs_error("MP4: Missing audio and video track. ret=%d", ret);
         return ret;
     }
     
@@ -5192,6 +5932,441 @@ int SrsMp4Encoder::do_write_sample(SrsMp4Sample* ps, uint8_t* sample, uint32_t n
     
     mdat_bytes += nb_sample;
     
+    return ret;
+}
+
+SrsMp4M2tsInitEncoder::SrsMp4M2tsInitEncoder()
+{
+    writer = NULL;
+}
+
+SrsMp4M2tsInitEncoder::~SrsMp4M2tsInitEncoder()
+{
+}
+
+int SrsMp4M2tsInitEncoder::initialize(ISrsWriter* w)
+{
+    writer = w;
+    return ERROR_SUCCESS;
+}
+
+int SrsMp4M2tsInitEncoder::write(SrsFormat* format, bool video, int tid)
+{
+    int ret = ERROR_SUCCESS;
+    
+    // Write ftyp box.
+    SrsMp4FileTypeBox* ftyp = new SrsMp4FileTypeBox();
+    SrsAutoFree(SrsMp4FileTypeBox, ftyp);
+    if (true) {
+        ftyp->major_brand = SrsMp4BoxBrandISO5;
+        ftyp->minor_version = 0;
+        ftyp->set_compatible_brands(SrsMp4BoxBrandISOM, SrsMp4BoxBrandISO5, SrsMp4BoxBrandDASH, SrsMp4BoxBrandMP42);
+    }
+    
+    // Write moov.
+    SrsMp4MovieBox* moov = new SrsMp4MovieBox();
+    SrsAutoFree(SrsMp4MovieBox, moov);
+    if (true) {
+        SrsMp4MovieHeaderBox* mvhd = new SrsMp4MovieHeaderBox();
+        moov->set_mvhd(mvhd);
+        
+        mvhd->timescale = 1000; // Use tbn ms.
+        mvhd->duration_in_tbn = 0;
+        mvhd->next_track_ID = tid;
+        
+        if (video) {
+            SrsMp4TrackBox* trak = new SrsMp4TrackBox();
+            moov->add_trak(trak);
+            
+            SrsMp4TrackHeaderBox* tkhd = new SrsMp4TrackHeaderBox();
+            trak->set_tkhd(tkhd);
+            
+            tkhd->track_ID = mvhd->next_track_ID++;
+            tkhd->duration = 0;
+            tkhd->width = (format->vcodec->width << 16);
+            tkhd->height = (format->vcodec->height << 16);
+            
+            SrsMp4MediaBox* mdia = new SrsMp4MediaBox();
+            trak->set_mdia(mdia);
+            
+            SrsMp4MediaHeaderBox* mdhd = new SrsMp4MediaHeaderBox();
+            mdia->set_mdhd(mdhd);
+            
+            mdhd->timescale = 1000;
+            mdhd->duration = 0;
+            mdhd->set_language0('u');
+            mdhd->set_language1('n');
+            mdhd->set_language2('d');
+            
+            SrsMp4HandlerReferenceBox* hdlr = new SrsMp4HandlerReferenceBox();
+            mdia->set_hdlr(hdlr);
+            
+            hdlr->handler_type = SrsMp4HandlerTypeVIDE;
+            hdlr->name = "VideoHandler";
+            
+            SrsMp4MediaInformationBox* minf = new SrsMp4MediaInformationBox();
+            mdia->set_minf(minf);
+            
+            SrsMp4VideoMeidaHeaderBox* vmhd = new SrsMp4VideoMeidaHeaderBox();
+            minf->set_vmhd(vmhd);
+            
+            SrsMp4DataInformationBox* dinf = new SrsMp4DataInformationBox();
+            minf->set_dinf(dinf);
+            
+            SrsMp4DataReferenceBox* dref = new SrsMp4DataReferenceBox();
+            dinf->set_dref(dref);
+            
+            SrsMp4DataEntryBox* url = new SrsMp4DataEntryUrlBox();
+            dref->append(url);
+            
+            SrsMp4SampleTableBox* stbl = new SrsMp4SampleTableBox();
+            minf->set_stbl(stbl);
+            
+            SrsMp4SampleDescriptionBox* stsd = new SrsMp4SampleDescriptionBox();
+            stbl->set_stsd(stsd);
+            
+            SrsMp4VisualSampleEntry* avc1 = new SrsMp4VisualSampleEntry();
+            stsd->append(avc1);
+            
+            avc1->width = format->vcodec->width;
+            avc1->height = format->vcodec->height;
+            
+            SrsMp4AvccBox* avcC = new SrsMp4AvccBox();
+            avc1->set_avcC(avcC);
+            
+            avcC->avc_config = format->vcodec->avc_extra_data;
+            
+            SrsMp4DecodingTime2SampleBox* stts = new SrsMp4DecodingTime2SampleBox();
+            stbl->set_stts(stts);
+            
+            SrsMp4Sample2ChunkBox* stsc = new SrsMp4Sample2ChunkBox();
+            stbl->set_stsc(stsc);
+            
+            SrsMp4SampleSizeBox* stsz = new SrsMp4SampleSizeBox();
+            stbl->set_stsz(stsz);
+            
+            SrsMp4ChunkOffsetBox* stco = new SrsMp4ChunkOffsetBox();
+            stbl->set_stco(stco);
+            
+            SrsMp4MovieExtendsBox* mvex = new SrsMp4MovieExtendsBox();
+            moov->set_mvex(mvex);
+            
+            SrsMp4TrackExtendsBox* trex = new SrsMp4TrackExtendsBox();
+            mvex->set_trex(trex);
+            
+            trex->track_ID = tid;
+            trex->default_sample_description_index = 1;
+        } else {
+            SrsMp4TrackBox* trak = new SrsMp4TrackBox();
+            moov->add_trak(trak);
+            
+            SrsMp4TrackHeaderBox* tkhd = new SrsMp4TrackHeaderBox();
+            tkhd->volume = 0x0100;
+            trak->set_tkhd(tkhd);
+            
+            tkhd->track_ID = mvhd->next_track_ID++;
+            tkhd->duration = 0;
+            
+            SrsMp4MediaBox* mdia = new SrsMp4MediaBox();
+            trak->set_mdia(mdia);
+            
+            SrsMp4MediaHeaderBox* mdhd = new SrsMp4MediaHeaderBox();
+            mdia->set_mdhd(mdhd);
+            
+            mdhd->timescale = 1000;
+            mdhd->duration = 0;
+            mdhd->set_language0('u');
+            mdhd->set_language1('n');
+            mdhd->set_language2('d');
+            
+            SrsMp4HandlerReferenceBox* hdlr = new SrsMp4HandlerReferenceBox();
+            mdia->set_hdlr(hdlr);
+            
+            hdlr->handler_type = SrsMp4HandlerTypeSOUN;
+            hdlr->name = "SoundHandler";
+            
+            SrsMp4MediaInformationBox* minf = new SrsMp4MediaInformationBox();
+            mdia->set_minf(minf);
+            
+            SrsMp4SoundMeidaHeaderBox* smhd = new SrsMp4SoundMeidaHeaderBox();
+            minf->set_smhd(smhd);
+            
+            SrsMp4DataInformationBox* dinf = new SrsMp4DataInformationBox();
+            minf->set_dinf(dinf);
+            
+            SrsMp4DataReferenceBox* dref = new SrsMp4DataReferenceBox();
+            dinf->set_dref(dref);
+            
+            SrsMp4DataEntryBox* url = new SrsMp4DataEntryUrlBox();
+            dref->append(url);
+            
+            SrsMp4SampleTableBox* stbl = new SrsMp4SampleTableBox();
+            minf->set_stbl(stbl);
+            
+            SrsMp4SampleDescriptionBox* stsd = new SrsMp4SampleDescriptionBox();
+            stbl->set_stsd(stsd);
+            
+            SrsMp4AudioSampleEntry* mp4a = new SrsMp4AudioSampleEntry();
+            mp4a->samplerate = uint32_t(srs_flv_srates[format->acodec->sound_rate]) << 16;
+            if (format->acodec->sound_size == SrsAudioSampleBits16bit) {
+                mp4a->samplesize = 16;
+            } else {
+                mp4a->samplesize = 8;
+            }
+            if (format->acodec->sound_type == SrsAudioChannelsStereo) {
+                mp4a->channelcount = 2;
+            } else {
+                mp4a->channelcount = 1;
+            }
+            stsd->append(mp4a);
+            
+            SrsMp4EsdsBox* esds = new SrsMp4EsdsBox();
+            mp4a->set_esds(esds);
+            
+            SrsMp4ES_Descriptor* es = esds->es;
+            es->ES_ID = 0x02;
+            
+            SrsMp4DecoderConfigDescriptor& desc = es->decConfigDescr;
+            desc.objectTypeIndication = SrsMp4ObjectTypeAac;
+            desc.streamType = SrsMp4StreamTypeAudioStream;
+            srs_freep(desc.decSpecificInfo);
+            
+            SrsMp4DecoderSpecificInfo* asc = new SrsMp4DecoderSpecificInfo();
+            desc.decSpecificInfo = asc;
+            asc->asc = format->acodec->aac_extra_data;
+            
+            SrsMp4DecodingTime2SampleBox* stts = new SrsMp4DecodingTime2SampleBox();
+            stbl->set_stts(stts);
+            
+            SrsMp4Sample2ChunkBox* stsc = new SrsMp4Sample2ChunkBox();
+            stbl->set_stsc(stsc);
+            
+            SrsMp4SampleSizeBox* stsz = new SrsMp4SampleSizeBox();
+            stbl->set_stsz(stsz);
+            
+            SrsMp4ChunkOffsetBox* stco = new SrsMp4ChunkOffsetBox();
+            stbl->set_stco(stco);
+            
+            SrsMp4MovieExtendsBox* mvex = new SrsMp4MovieExtendsBox();
+            moov->set_mvex(mvex);
+            
+            SrsMp4TrackExtendsBox* trex = new SrsMp4TrackExtendsBox();
+            mvex->set_trex(trex);
+            
+            trex->track_ID = tid;
+            trex->default_sample_description_index = 1;
+        }
+    }
+    
+    int nb_data = ftyp->nb_bytes() + moov->nb_bytes();
+    uint8_t* data = new uint8_t[nb_data];
+    SrsAutoFreeA(uint8_t, data);
+    
+    SrsBuffer* buffer = new SrsBuffer();
+    SrsAutoFree(SrsBuffer, buffer);
+    if ((ret = buffer->initialize((char*)data, nb_data)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    if ((ret = ftyp->encode(buffer)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    if ((ret = moov->encode(buffer)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    if ((ret = writer->write(data, nb_data, NULL)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    return ret;
+}
+
+SrsMp4M2tsSegmentEncoder::SrsMp4M2tsSegmentEncoder()
+{
+    writer = NULL;
+    nb_audios = nb_videos = 0;
+    samples = new SrsMp4SampleManager();
+    buffer = new SrsBuffer();
+    sequence_number = 0;
+    decode_basetime = 0;
+    data_offset = 0;
+    mdat_bytes = 0;
+}
+
+SrsMp4M2tsSegmentEncoder::~SrsMp4M2tsSegmentEncoder()
+{
+    srs_freep(samples);
+    srs_freep(buffer);
+}
+
+int SrsMp4M2tsSegmentEncoder::initialize(ISrsWriter* w, uint32_t sequence, uint64_t basetime, uint32_t tid)
+{
+    int ret = ERROR_SUCCESS;
+    
+    writer = w;
+    track_id = tid;
+    sequence_number = sequence;
+    decode_basetime = basetime;
+    
+    // Write styp box.
+    if (true) {
+        SrsMp4SegmentTypeBox* styp = new SrsMp4SegmentTypeBox();
+        SrsAutoFree(SrsMp4SegmentTypeBox, styp);
+        
+        styp->major_brand = SrsMp4BoxBrandMSDH;
+        styp->minor_version = 0;
+        styp->set_compatible_brands(SrsMp4BoxBrandMSDH, SrsMp4BoxBrandDASH);
+        
+        int nb_data = styp->nb_bytes();
+        std::vector<char> data(nb_data);
+        if ((ret = buffer->initialize(&data[0], nb_data)) != ERROR_SUCCESS) {
+            return ret;
+        }
+        if ((ret = styp->encode(buffer)) != ERROR_SUCCESS) {
+            return ret;
+        }
+        
+        // TODO: FIXME: Ensure write ok.
+        if ((ret = writer->write(&data[0], nb_data, NULL)) != ERROR_SUCCESS) {
+            return ret;
+        }
+        
+        data_offset = nb_data;
+    }
+    return ret;
+}
+
+int SrsMp4M2tsSegmentEncoder::write_sample(SrsMp4HandlerType ht,
+    uint16_t ft, uint32_t dts, uint32_t pts, uint8_t* sample, uint32_t nb_sample
+) {
+    int ret = ERROR_SUCCESS;
+    
+    SrsMp4Sample* ps = new SrsMp4Sample();
+    
+    if (ht == SrsMp4HandlerTypeVIDE) {
+        ps->type = SrsFrameTypeVideo;
+        ps->frame_type = (SrsVideoAvcFrameType)ft;
+        ps->index = nb_videos++;
+    } else if (ht == SrsMp4HandlerTypeSOUN) {
+        ps->type = SrsFrameTypeAudio;
+        ps->index = nb_audios++;
+    } else {
+        srs_freep(ps);
+        return ret;
+    }
+    
+    ps->tbn = 1000;
+    ps->dts = dts;
+    ps->pts = pts;
+    ps->data = sample;
+    ps->nb_data = nb_sample;
+    
+    // Append to manager to build the moof.
+    samples->append(ps);
+    
+    mdat_bytes += nb_sample;
+    
+    return ret;
+}
+
+int SrsMp4M2tsSegmentEncoder::flush(uint64_t& dts)
+{
+    int ret = ERROR_SUCCESS;
+    
+    if (!nb_audios && !nb_videos) {
+        ret = ERROR_MP4_ILLEGAL_MOOF;
+        srs_error("fMP4: Missing audio and video track. ret=%d", ret);
+        return ret;
+    }
+    
+    // Create a mdat box.
+    // its payload will be writen by samples,
+    // and we will update its header(size) when flush.
+    SrsMp4MediaDataBox* mdat = new SrsMp4MediaDataBox();
+    SrsAutoFree(SrsMp4MediaDataBox, mdat);
+    
+    // Write moof.
+    if (true) {
+        SrsMp4MovieFragmentBox* moof = new SrsMp4MovieFragmentBox();
+        SrsAutoFree(SrsMp4MovieFragmentBox, moof);
+        
+        SrsMp4MovieFragmentHeaderBox* mfhd = new SrsMp4MovieFragmentHeaderBox();
+        moof->set_mfhd(mfhd);
+        
+        mfhd->sequence_number = sequence_number;
+        
+        SrsMp4TrackFragmentBox* traf = new SrsMp4TrackFragmentBox();
+        moof->set_traf(traf);
+        
+        SrsMp4TrackFragmentHeaderBox* tfhd = new SrsMp4TrackFragmentHeaderBox();
+        traf->set_tfhd(tfhd);
+        
+        tfhd->track_id = track_id;
+        tfhd->flags = SrsMp4TfhdFlagsDefaultBaseIsMoof;
+        
+        SrsMp4TrackFragmentDecodeTimeBox* tfdt = new SrsMp4TrackFragmentDecodeTimeBox();
+        traf->set_tfdt(tfdt);
+        
+        tfdt->version = 1;
+        tfdt->base_media_decode_time = decode_basetime;
+        
+        SrsMp4TrackFragmentRunBox* trun = new SrsMp4TrackFragmentRunBox();
+        traf->set_trun(trun);
+        
+        if ((ret = samples->write(moof, dts)) != ERROR_SUCCESS) {
+            return ret;
+        }
+        
+        int nb_data = moof->nb_bytes();
+        trun->data_offset = (int32_t)(data_offset + nb_data + mdat->sz_header());
+        
+        uint8_t* data = new uint8_t[nb_data];
+        SrsAutoFreeA(uint8_t, data);
+        if ((ret = buffer->initialize((char*)data, nb_data)) != ERROR_SUCCESS) {
+            return ret;
+        }
+        
+        if ((ret = moof->encode(buffer)) != ERROR_SUCCESS) {
+            return ret;
+        }
+        
+        // TODO: FIXME: Ensure all bytes are writen.
+        if ((ret = writer->write(data, nb_data, NULL)) != ERROR_SUCCESS) {
+            return ret;
+        }
+    }
+    
+    // Write mdat.
+    if (true) {
+        mdat->nb_data = (int)mdat_bytes;
+        
+        int nb_data = mdat->sz_header();
+        uint8_t* data = new uint8_t[nb_data];
+        SrsAutoFreeA(uint8_t, data);
+        if ((ret = buffer->initialize((char*)data, nb_data)) != ERROR_SUCCESS) {
+            return ret;
+        }
+        if ((ret = mdat->encode(buffer)) != ERROR_SUCCESS) {
+            return ret;
+        }
+        
+        // TODO: FIXME: Ensure all bytes are writen.
+        if ((ret = writer->write(data, nb_data, NULL)) != ERROR_SUCCESS) {
+            return ret;
+        }
+        
+        vector<SrsMp4Sample*>::iterator it;
+        for (it = samples->samples.begin(); it != samples->samples.end(); ++it) {
+            SrsMp4Sample* sample = *it;
+            
+            // TODO: FIXME: Ensure all bytes are writen.
+            if ((ret = writer->write(sample->data, sample->nb_data, NULL)) != ERROR_SUCCESS) {
+                return ret;
+            }
+        }
+    }
+
     return ret;
 }
 
